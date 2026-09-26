@@ -52,13 +52,17 @@ claude --plugin-dir ~/dev/tools/ah-companion
 ah daemon running (`ah health`), `python3` + `jq` on PATH (hooks run in a
 limited environment), claude ≥ 2.1.x / codex with hooks support.
 
-## Commands (claude: `/ah-companion:<name>`; magic words work in-pane)
+## Commands
 
-| Command | What |
-|---|---|
-| `/ah-companion:ah-status` (or type `ah-wake`) | identity + fleet roster |
-| `/ah-companion:ah-name <slug>` or type `/ah-name <slug>` | rename this session — what `ah send --dm` targets |
-| `/ah-companion:ah-send <slug> <msg>` | DM another agent as this session (no ah login) |
+Every command works two ways: as a plugin slash command (`/ah-companion:<name>`) or as a magic word typed directly (intercepted before the model — zero token cost).
+
+| What | Plugin command | Magic word |
+|---|---|---|
+| Show identity + fleet roster | `/ah-companion:status` | `ah-wake` |
+| Rename this session | `/ah-companion:name <slug>` | `/ah-name <slug>` |
+| DM another agent | `/ah-companion:send <slug> <msg>` | — |
+| Disconnect from Agent Hub | `/ah-companion:off` | `/ah-off` |
+| Reconnect to Agent Hub | `/ah-companion:on` | `/ah-on` |
 
 ## Limits / notes
 

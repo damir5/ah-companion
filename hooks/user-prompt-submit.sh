@@ -18,7 +18,7 @@ TOKEN=$(jq -r '.token // empty' "$STATE" 2>/dev/null || true)
 PENDING=$("$AHC" pending "$TOKEN" 2>/dev/null || true)
 BODIES=$(printf '%s' "$PENDING" | jq -r '.. | .body? // empty' 2>/dev/null || true)
 
-# claude naming word: /ah-name <slug> renames this session's AH identity
+# claude magic words: deterministic, intercepted before the model sees them
 if [ "${AH_COMPANION_HARNESS:-claude}" = "claude" ]; then
 	case "$PROMPT" in
 		/ah-name\ *)
@@ -32,6 +32,16 @@ if [ "${AH_COMPANION_HARNESS:-claude}" = "claude" ]; then
 				fi
 				exit 0
 			fi
+			;;
+		/ah-off)
+			"$AHC" end "$SESSION_ID" >/dev/null 2>&1 || true
+			rm -f "$STATE" 2>/dev/null || true
+			printf '{"decision":"block","reason":"[Agent Hub] disconnected. Type ah-wake to reconnect."}'
+			exit 0
+			;;
+		/ah-on)
+			printf '{"decision":"block","reason":"[Agent Hub] reconnecting — registration fires on the next hook event. Type ah-wake to trigger immediately."}'
+			exit 0
 			;;
 	esac
 fi
