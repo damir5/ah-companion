@@ -16,4 +16,4 @@ python3 "$AHC" send "$SID" "$TARGET" "$BODY"
 ```
 
 Report the JSON result. On ok:true the message was delivered under THIS session's identity — no separate ah login needed. Replies from the peer arrive back in this conversation automatically (labeled `[From <peer> via Agent Hub]`).
-If target or body is missing, ask which agent slug to message (see the fleet roster via `/ah-companion:status`).
+If target or body is missing, ask which agent slug to message (see the fleet roster via `/ah:status`).

@@ -30,7 +30,7 @@ Then one-time per machine: trust the hooks — claude `/plugin`, codex `/hooks`
 Manual:
 ```sh
 claude plugin marketplace add https://github.com/damir5/ah-companion.git
-claude plugin install ah-companion@ah-companion
+claude plugin install ah@ah
 codex plugin marketplace add https://github.com/damir5/ah-companion.git
 codex plugin add ah-companion
 ```
@@ -54,15 +54,15 @@ limited environment), claude ≥ 2.1.x / codex with hooks support.
 
 ## Commands
 
-Every command works two ways: as a plugin slash command (`/ah-companion:<name>`) or as a magic word typed directly (intercepted before the model — zero token cost).
+Every command works two ways: as a plugin slash command (`/ah:<name>`) or as a magic word typed directly (intercepted before the model — zero token cost).
 
 | What | Plugin command | Magic word |
 |---|---|---|
-| Show identity + fleet roster | `/ah-companion:status` | `ah-wake` |
-| Rename this session | `/ah-companion:name <slug>` | `/ah-name <slug>` |
-| DM another agent | `/ah-companion:send <slug> <msg>` | — |
-| Disconnect from Agent Hub | `/ah-companion:off` | `/ah-off` |
-| Reconnect to Agent Hub | `/ah-companion:on` | `/ah-on` |
+| Show identity + fleet roster | `/ah:status` | `ah-wake` |
+| Rename this session | `/ah:name <slug>` | `/ah-name <slug>` |
+| DM another agent | `/ah:send <slug> <msg>` | — |
+| Disconnect from Agent Hub | `/ah:off` | `/ah-off` |
+| Reconnect to Agent Hub | `/ah:on` | `/ah-on` |
 
 ## Limits / notes
 
