@@ -83,14 +83,49 @@ def request(payload: dict, timeout: float = 35.0) -> dict:
         sock.close()
 
 
+
+def _ps_command(pid: int) -> str:
+    try:
+        with os.popen(f"ps -o command= -p {pid} 2>/dev/null") as p:
+            return p.read().strip()
+    except Exception:
+        return ""
+
+
+def resolve_harness_pid(harness: str) -> int:
+    """Walk from this hook's parent up to the topmost ancestor whose command
+    names the harness binary; register THAT pid so the session lives as long
+    as the harness, not a transient worker."""
+    needle = "claude" if harness == "claude" else harness
+    pid = os.getppid()
+    best = 0
+    for _ in range(12):  # bound the walk
+        if pid <= 1:
+            break
+        cmd = _ps_command(pid)
+        if not cmd:
+            break
+        if needle in cmd.split(" ")[0] or f"/{needle}" in cmd or cmd.startswith(needle):
+            best = pid
+        ppid = 0
+        try:
+            with os.popen(f"ps -o ppid= -p {pid} 2>/dev/null") as p:
+                ppid = int((p.read().strip() or "0"))
+        except ValueError:
+            break
+        if ppid <= 1:
+            break
+        pid = ppid
+    return best or os.getppid()
+
 def state_dir() -> str:
-    base = (
-        os.environ.get("CLAUDE_PLUGIN_DATA")
-        or os.environ.get("PLUGIN_DATA")
-        or os.path.join(
-            os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
-            "ah-companion",
-        )
+    # NEVER use CLAUDE_PLUGIN_DATA / PLUGIN_DATA here: harnesses may point
+    # them at per-session temp dirs that are wiped when the session ends.
+    # A single stable dir shared by claude/codex keeps tokens findable by
+    # every hook across the session lifetime.
+    base = os.path.join(
+        os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+        "ah-companion",
     )
     os.makedirs(base, exist_ok=True)
     return base
@@ -132,9 +167,10 @@ def main() -> int:
             session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{harness}:{session_id}"))
         token = f"ahc-{int(time.time()*1000)}-{session_id[-8:]}"
         # The session must live as long as the HARNESS process, not this
-        # short-lived hook: register the harness pid (hook's parent) unless
-        # overridden. The daemon reaps sessions whose pid dies.
-        harness_pid = int(os.environ.get("AH_COMPANION_HARNESS_PID") or 0) or os.getppid()
+        # short-lived hook. Hooks may run under transient harness workers,
+        # so climb the ancestor chain to the TOPMOST matching harness
+        # process — the daemon reaps sessions whose pid dies.
+        harness_pid = int(os.environ.get("AH_COMPANION_HARNESS_PID") or 0) or resolve_harness_pid(harness)
         resp = request(
             {
                 "type": "session.register",

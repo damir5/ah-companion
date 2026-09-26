@@ -9,7 +9,14 @@ INPUT=$(cat)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty')
 [ -n "$SESSION_ID" ] || exit 0
 AHC="$CLAUDE_PLUGIN_ROOT/hooks/ahc.py"
-STATE=$("$AHC" state-path "$SESSION_ID" 2>/dev/null || true)
+# The async waiter can start before the synchronous SessionStart hook has
+# written the registration state — poll briefly for it before giving up.
+STATE=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+	STATE=$("$AHC" state-path "$SESSION_ID" 2>/dev/null || true)
+	if [ -n "$STATE" ] && [ -f "$STATE" ]; then break; fi
+	sleep 1
+done
 [ -n "$STATE" ] && [ -f "$STATE" ] || exit 0
 TOKEN=$(jq -r '.token // empty' "$STATE" 2>/dev/null || true)
 [ -n "$TOKEN" ] || exit 0
