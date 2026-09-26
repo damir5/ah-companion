@@ -1,6 +1,6 @@
 {
   "name": "ah-companion",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Agent Hub companion \u2014 semantic delivery of Agent Hub messages into interactive Codex sessions (registration, Stop-block boundary delivery, prompt drain; idle wake via codex queue).",
   "author": {
     "name": "damir"

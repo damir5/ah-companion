@@ -9,7 +9,7 @@ This session is registered with Agent Hub under a slug (see `~/.local/state/ah-c
 
 ## Identity
 - Current slug + token live in the state file above.
-- Rename (what `ah send --dm <slug>` targets): the user types `/ahname <new-slug>` directly, or ask you to run `ahc.py rename <session_id> <slug>`.
+- Rename (what `ah send --dm <slug>` targets): the user types `/ah-name <new-slug>` directly, or ask you to run `ahc.py rename <session_id> <slug>`.
 
 ## Messaging (no ah login needed — this session IS the sender)
 ```bash

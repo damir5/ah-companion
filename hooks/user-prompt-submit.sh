@@ -18,10 +18,10 @@ TOKEN=$(jq -r '.token // empty' "$STATE" 2>/dev/null || true)
 PENDING=$("$AHC" pending "$TOKEN" 2>/dev/null || true)
 BODIES=$(printf '%s' "$PENDING" | jq -r '.. | .body? // empty' 2>/dev/null || true)
 
-# claude naming word: /ahname <slug> renames this session's AH identity
+# claude naming word: /ah-name <slug> renames this session's AH identity
 if [ "${AH_COMPANION_HARNESS:-claude}" = "claude" ]; then
 	case "$PROMPT" in
-		/ahname\ *)
+		/ah-name\ *)
 			NEW=$(printf '%s' "$PROMPT" | awk '{print $2}')
 			if [ -n "$NEW" ]; then
 				RES=$("$AHC" rename "$SESSION_ID" "$NEW" 2>/dev/null || true)

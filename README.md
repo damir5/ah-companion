@@ -52,6 +52,14 @@ claude --plugin-dir ~/dev/tools/ah-companion
 ah daemon running (`ah health`), `python3` + `jq` on PATH (hooks run in a
 limited environment), claude ≥ 2.1.x / codex with hooks support.
 
+## Commands (claude: `/ah-companion:<name>`; magic words work in-pane)
+
+| Command | What |
+|---|---|
+| `/ah-companion:ah-status` (or type `ah-wake`) | identity + fleet roster |
+| `/ah-companion:ah-name <slug>` or type `/ah-name <slug>` | rename this session — what `ah send --dm` targets |
+| `/ah-companion:ah-send <slug> <msg>` | DM another agent as this session (no ah login) |
+
 ## Limits / notes
 
 - codex background hooks don't wake idle sessions — idle codex delivery is
