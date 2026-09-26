@@ -18,6 +18,24 @@ TOKEN=$(jq -r '.token // empty' "$STATE" 2>/dev/null || true)
 PENDING=$("$AHC" pending "$TOKEN" 2>/dev/null || true)
 BODIES=$(printf '%s' "$PENDING" | jq -r '.. | .body? // empty' 2>/dev/null || true)
 
+# claude naming word: /ahname <slug> renames this session's AH identity
+if [ "${AH_COMPANION_HARNESS:-claude}" = "claude" ]; then
+	case "$PROMPT" in
+		/ahname\ *)
+			NEW=$(printf '%s' "$PROMPT" | awk '{print $2}')
+			if [ -n "$NEW" ]; then
+				RES=$("$AHC" rename "$SESSION_ID" "$NEW" 2>/dev/null || true)
+				if printf '%s' "$RES" | grep -q '"ok": *true'; then
+					printf '{"decision":"block","reason":"[Agent Hub] session renamed to %s"}' "$NEW"
+				else
+					printf '{"decision":"block","reason":"[Agent Hub] rename failed: %s"}' "$(printf '%s' "$RES" | head -c 200)"
+				fi
+				exit 0
+			fi
+			;;
+	esac
+fi
+
 # claude wake-word: block the nudge prompt, deliver mail instead
 if [ "${AH_COMPANION_HARNESS:-claude}" = "claude" ] && [ "$PROMPT" = "ah-wake" ]; then
 	if [ -n "$BODIES" ]; then

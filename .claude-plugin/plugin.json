@@ -1,7 +1,9 @@
 {
-	"name": "ah-companion",
-	"version": "0.2.0",
-	"description": "Agent Hub companion — semantic delivery of Agent Hub messages into interactive Claude Code sessions (registration, idle wake via asyncRewake, boundary delivery, prompt drain).",
-	"author": { "name": "damir" },
-	"hooks": "./hooks/hooks-claude.json"
+  "name": "ah-companion",
+  "version": "0.3.0",
+  "description": "Agent Hub companion \u2014 semantic delivery of Agent Hub messages into interactive Claude Code sessions (registration, idle wake via asyncRewake, boundary delivery, prompt drain).",
+  "author": {
+    "name": "damir"
+  },
+  "hooks": "./hooks/hooks-claude.json"
 }

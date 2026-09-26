@@ -241,6 +241,43 @@ def main() -> int:
         print(state_file(rest[0]))
         return 0
 
+    if cmd == "rename":
+        session_id, slug = rest[0], rest[1]
+        state = load_state(session_id)
+        token = rest[2] if len(rest) > 2 else state.get("token", "")
+        if not token:
+            print(json.dumps({"error": "no registration state for session"}))
+            return 1
+        resp = request({"type": "session.rename", "token": token, "agent_slug": slug})
+        if resp.get("ok"):
+            state["slug"] = slug
+            save_state(session_id, state)
+        print(json.dumps(resp))
+        return 0 if resp.get("ok") else 1
+
+    if cmd == "send":
+        # send a DM as THIS session (the pane's agent identity) — no ah login needed
+        session_id, target = rest[0], rest[1]
+        body = rest[2] if len(rest) > 2 else ""
+        state = load_state(session_id)
+        token = state.get("token", "")
+        if not token:
+            print(json.dumps({"error": "no registration state for session"}))
+            return 1
+        resp = request({"type": "message.send", "token": token, "agent_slug": state.get("slug", ""), "dm": target, "body": body})
+        print(json.dumps(resp))
+        return 0 if resp.get("ok") else 1
+
+    if cmd == "whoami":
+        session_id = rest[0]
+        state = load_state(session_id)
+        if not state:
+            print(json.dumps({"registered": False}))
+            return 0
+        st = request({"type": "status"})
+        print(json.dumps({"registered": True, **{k: state[k] for k in ("slug", "session_id") if k in state}}))
+        return 0
+
     print(f"unknown command: {cmd}", file=sys.stderr)
     return 2
 
