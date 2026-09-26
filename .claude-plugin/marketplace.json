@@ -1,0 +1,14 @@
+{
+	"name": "ah-companion",
+	"owner": { "name": "damir" },
+	"metadata": { "description": "Damir's personal harness plugins", "version": 1 },
+	"plugins": [
+		{
+			"name": "ah-companion",
+			"source": "./",
+			"description": "Agent Hub companion — semantic delivery of AH messages into interactive claude/codex sessions",
+			"version": "0.1.0",
+			"category": "integration"
+		}
+	]
+}

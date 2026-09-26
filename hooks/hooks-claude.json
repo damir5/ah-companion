@@ -1,0 +1,68 @@
+{
+	"description": "Agent Hub companion hooks — claude flavor (asyncRewake idle wake).",
+	"hooks": {
+		"SessionStart": [
+			{
+				"matcher": "",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "$CLAUDE_PLUGIN_ROOT/hooks/session-start.sh",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "$CLAUDE_PLUGIN_ROOT/hooks/wait-wake.sh",
+						"async": true,
+						"asyncRewake": true,
+						"timeout": 1800,
+						"statusMessage": "ah-companion listening"
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"matcher": "",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "$CLAUDE_PLUGIN_ROOT/hooks/stop.sh",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "$CLAUDE_PLUGIN_ROOT/hooks/wait-wake.sh",
+						"async": true,
+						"asyncRewake": true,
+						"timeout": 1800
+					}
+				]
+			}
+		],
+		"UserPromptSubmit": [
+			{
+				"matcher": "",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "$CLAUDE_PLUGIN_ROOT/hooks/user-prompt-submit.sh",
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"SessionEnd": [
+			{
+				"matcher": "",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "$CLAUDE_PLUGIN_ROOT/hooks/session-end.sh",
+						"timeout": 5
+					}
+				]
+			}
+		]
+	}
+}
