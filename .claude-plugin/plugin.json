@@ -1,6 +1,6 @@
 {
   "name": "ah",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Agent Hub companion \u2014 semantic delivery of Agent Hub messages into interactive Claude Code sessions (registration, idle wake via asyncRewake, boundary delivery, prompt drain).",
   "author": {
     "name": "damir"

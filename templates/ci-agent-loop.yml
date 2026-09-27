@@ -1,0 +1,57 @@
+# CI agent loop via Agent Hub — mid-run steering, authorized model chains, audit trail
+# Prerequisites: AH daemon on the runner (or ah login to the hub), agent identity set
+name: Agent Loop
+on:
+  schedule:
+    - cron: "0 13 * * 1-5"  # weekdays
+  workflow_dispatch: {}
+
+env:
+  AGENT_LABEL: agent-<task-slug>
+  MAX_OPEN_PRS: "1"
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+
+      - name: PR bounding gate
+        run: |
+          COUNT=$(gh pr list --label "$AGENT_LABEL" --state open --json number --jq 'length')
+          if [ "$COUNT" -ge "$MAX_OPEN_PRS" ]; then
+            echo "Skipping: $COUNT/$MAX_OPEN_PRS PRs already open"
+            exit 78  # neutral skip
+          fi
+
+      - name: Run agent via AH
+        env:
+          AH_TOKEN: ${{ secrets.AH_TOKEN }}
+        run: |
+          # Launch a standing run — steerable via ah send --run from later steps
+          # or from any machine on the fleet
+          RUN_ID=$(ah run --harness pi --standing --detach \
+            --model zai/glm-5.3-flash --identity named \
+            --prompt-file .github/agent-prompt.md \
+            2>&1 | jq -r '.run_id')
+          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
+
+          # Wait for completion (or timeout)
+          ah wait "$RUN_ID" --timeout 600
+
+          # Extract the result
+          ah peek "$RUN_ID" --events | jq -r '.events[] | select(.kind=="result") | .payload' > /tmp/pr-body.md
+
+      - name: Create PR
+        if: success()
+        run: |
+          git checkout -b "agent/$(date +%Y%m%d-%H%M%S)"
+          git add -A
+          git commit -m "[$AGENT_LABEL] automated change"
+          git push origin "agent/$(date +%Y%m%d-%H%M%S)"
+          gh pr create \
+            --title "[$AGENT_LABEL] $(head -1 /tmp/pr-body.md)" \
+            --body-file /tmp/pr-body.md \
+            --label "$AGENT_LABEL"

@@ -19,6 +19,25 @@ python3 "$AHC" send "$SID" "<target-slug>" "<message body>"
 ```
 - Replies arrive as `[From <peer> via Agent Hub]` turns in this conversation — answer them in-band.
 
+## Cross-harness DM mesh
+
+Every interactive session on the fleet — **pi, claude, codex** — registers with Agent Hub automatically (via ah-session extension for pi, ah plugin for claude/codex). You can DM any of them:
+
+| From | To | How |
+|---|---|---|
+| claude/codex | any | `ahc.py send <sid> <slug> <msg>` (bash above) |
+| pi | any | the model calls the ah-session extension's tool, or `ah send --dm <slug>` from bash |
+| any | claude | `ah send --dm claude-<project>` — arrives as a turn via asyncRewake |
+| any | pi | `ah send --dm pi-<project>` — arrives as a steer/turn via ah-session |
+| any | codex | `ah send --dm codex-<project>` — arrives via Stop-block or `codex queue` |
+
+Examples:
+- From claude: ask a pi session to run a test → `ahc.py send $SID pi-myproject "run make test and reply with the result"`
+- From pi: ask a claude session for a code review → `ah send --dm claude-myproject "review the last commit"`
+- Peer conversations: both sides reply in-band; the exchange shows in each session's transcript
+
+Slugs are `harness-projectname` (e.g. `claude-stories`, `pi-fisco`, `codex-agent-hub`). Check `/ah:status` or `ah status` for the live roster.
+
 ## Roster
 ```bash
 ah status | jq -r '.sessions[]? | "\(.agent_slug // "(unnamed)")  \(.harness)  \(.activity)  \(.liveness)"'
