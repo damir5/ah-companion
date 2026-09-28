@@ -12,7 +12,7 @@
       "name": "ah",
       "source": "./",
       "description": "Agent Hub companion \u2014 semantic delivery of AH messages into interactive claude/codex sessions",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "category": "integration"
     }
   ]

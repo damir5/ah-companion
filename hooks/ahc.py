@@ -13,6 +13,7 @@ connection errors):
   fail <token> <message_id> <reason>
   pending <token>                                  → queued messages
   end <token>
+  project-marker <dir>                             → path of the auto-register marker
 
 Session state (token/slug) is kept by the caller; hooks store it in the
 state dir next to this script's data directory.
@@ -21,6 +22,7 @@ state dir next to this script's data directory.
 import json
 import os
 import socket
+import subprocess
 import sys
 import time
 import uuid
@@ -136,6 +138,21 @@ def state_file(session_id: str) -> str:
     return os.path.join(state_dir(), f"session-{safe}.json")
 
 
+def project_marker(directory: str) -> str:
+    """Marker file whose presence opts a project (its Git root, else the
+    directory) into auto-registration at SessionStart. /ah:on creates it,
+    /ah:off removes it."""
+    try:
+        root = subprocess.run(
+            ["git", "-C", directory, "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        root = os.path.abspath(directory)
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in root)
+    return os.path.join(state_dir(), f"project-{safe}.on")
+
+
 def save_state(session_id: str, data: dict) -> None:
     with open(state_file(session_id), "w", encoding="utf-8") as f:
         json.dump(data, f)
@@ -235,6 +252,10 @@ def main() -> int:
 
     if cmd == "socket":
         print(socket_path())
+        return 0
+
+    if cmd == "project-marker":
+        print(project_marker(rest[0]))
         return 0
 
     if cmd == "state-path":

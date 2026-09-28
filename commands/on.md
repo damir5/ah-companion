@@ -1,17 +1,18 @@
 ---
-description: Reconnect this session to Agent Hub
+description: Connect this session to Agent Hub and register new sessions in this project automatically
 ---
 
-Re-enable Agent Hub for this session. Run this bash:
+Switch Agent Hub on for this project and register this session. Run this bash:
 
 ```bash
 AHC="{{pluginPath}}/hooks/ahc.py"
-SESSION_FILE=$(ls -t ~/.local/state/ah-companion/session-*.json 2>/dev/null | head -1)
-if [ -n "$SESSION_FILE" ]; then echo "already registered as: $(jq -r .slug "$SESSION_FILE")"; else
-  # Re-register using the session id from the hook environment
-  CWD=$(pwd); SLUG="claude-$(basename "$CWD" | tr -c 'a-z0-9-' '-' | sed 's/-*$//' | cut -c1-24)"
-  echo "registration happens on the next SessionStart or Stop hook; type ah-wake to trigger it"
+touch "$(python3 "$AHC" project-marker "$(pwd)")"
+SID="${CLAUDE_SESSION_ID}"
+STATE=$(python3 "$AHC" state-path "${SID:-none}")
+if [ -n "$SID" ]; then
+  printf '{"session_id":"%s","cwd":"%s"}' "$SID" "$(pwd)" | CLAUDE_PLUGIN_ROOT="{{pluginPath}}" sh "{{pluginPath}}/hooks/session-start.sh"
 fi
+if [ -f "$STATE" ]; then echo "registered as: $(jq -r .slug "$STATE")"; else echo "project switched on; type /ah-on to register this session now"; fi
 ```
 
-Tell the user the result. If not yet registered, the next `ah-wake` or session restart will re-register.
+Tell the user the result. New sessions in this project register at start until `/ah:off`.

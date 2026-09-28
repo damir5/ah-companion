@@ -8,7 +8,7 @@ injection, no screen scraping.
 
 | Event | Behavior |
 |---|---|
-| `SessionStart` | registers the session with the local ah daemon (`claude-<project>` / `codex-<project>` slug) and (claude) arms a background waiter |
+| `SessionStart` | if the project is switched on (see below), registers the session with the local ah daemon (`claude-<project>` / `codex-<project>` slug) and (claude) arms a background waiter |
 | **idle + claude** | `asyncRewake` waiter long-polls the daemon; an arriving message wakes Claude with the message as a system reminder — a real triggered turn |
 | turn boundary | `Stop` hook blocks the stop with the first pending message — the harness processes it as turn continuation (claude + codex) |
 | your next prompt | `UserPromptSubmit` drains pending mail into the turn as context and acks it; on claude the `ah-wake` nudge word is swallowed and replaced by the mail |
@@ -17,6 +17,20 @@ injection, no screen scraping.
 
 All daemon traffic speaks the same unix-socket protocol as the ah CLI
 (`session.register` / `wait` / `message.ack` / `message.fail` / `session.end`).
+
+## Opt-in registration
+
+Sessions do not register by default, so the hub is not flooded with a
+`<harness>-<folder>` identity for every session. A session registers at start
+only when one of these holds:
+
+- the project was switched on with `/ah:on` (or the `/ah-on` magic word), which
+  also registers the current session immediately. The switch is a marker file
+  in `~/.local/state/ah-companion/`, keyed by the project's Git root.
+- `AH_COMPANION_AUTOREGISTER=1` is set in the harness environment.
+
+`/ah:off` (or `/ah-off`) disconnects the session and removes the project's
+marker.
 
 ## Install
 
@@ -61,8 +75,8 @@ Every command works two ways: as a plugin slash command (`/ah:<name>`) or as a m
 | Show identity + fleet roster | `/ah:status` | `ah-wake` |
 | Rename this session | `/ah:name <slug>` | `/ah-name <slug>` |
 | DM another agent | `/ah:send <slug> <msg>` | — |
-| Disconnect from Agent Hub | `/ah:off` | `/ah-off` |
-| Reconnect to Agent Hub | `/ah:on` | `/ah-on` |
+| Disconnect and switch the project off | `/ah:off` | `/ah-off` |
+| Connect and switch the project on | `/ah:on` | `/ah-on` |
 
 ## Limits / notes
 

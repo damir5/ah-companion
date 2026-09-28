@@ -21,7 +21,7 @@ python3 "$AHC" send "$SID" "<target-slug>" "<message body>"
 
 ## Cross-harness DM mesh
 
-Every interactive session on the fleet — **pi, claude, codex** — registers with Agent Hub automatically (via ah-session extension for pi, ah plugin for claude/codex). You can DM any of them:
+Interactive sessions register with Agent Hub via the ah-session extension (pi) or the ah plugin (claude/codex). The plugin registers a claude/codex session only in projects switched on with `/ah:on`, or when `AH_COMPANION_AUTOREGISTER=1`. You can DM any registered session:
 
 | From | To | How |
 |---|---|---|
