@@ -19,6 +19,7 @@ Session state (token/slug) is kept by the caller; hooks store it in the
 state dir next to this script's data directory.
 """
 
+import hashlib
 import json
 import os
 import socket
@@ -148,9 +149,13 @@ def project_marker(directory: str) -> str:
             capture_output=True, text=True, check=True,
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
-        root = os.path.abspath(directory)
-    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in root)
-    return os.path.join(state_dir(), f"project-{safe}.on")
+        root = directory
+    # Key by a hash of the canonical path: replacing separators alone made
+    # /tmp/a.b and /tmp/a/b share one marker.
+    root = os.path.realpath(root)
+    name = "".join(c if c.isalnum() or c in "-_" else "_" for c in os.path.basename(root))
+    digest = hashlib.sha256(root.encode("utf-8")).hexdigest()[:16]
+    return os.path.join(state_dir(), f"project-{name[:32]}-{digest}.on")
 
 
 def save_state(session_id: str, data: dict) -> None:

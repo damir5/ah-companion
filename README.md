@@ -26,11 +26,15 @@ only when one of these holds:
 
 - the project was switched on with `/ah:on` (or the `/ah-on` magic word), which
   also registers the current session immediately. The switch is a marker file
-  in `~/.local/state/ah-companion/`, keyed by the project's Git root.
+  in `~/.local/state/ah-companion/`, keyed by a hash of the project's Git root
+  (markers from 0.6.0 are not read; switch the project on again).
 - `AH_COMPANION_AUTOREGISTER=1` is set in the harness environment.
 
-`/ah:off` (or `/ah-off`) disconnects the session and removes the project's
-marker.
+A session that is not registered yet registers on its next prompt when its
+project has a marker, for example after the daemon was down at session start.
+
+`/ah:off` (or `/ah-off`) disconnects the current session and removes the
+project's marker; it works even when the session never registered.
 
 ## Install
 
@@ -60,6 +64,7 @@ claude --plugin-dir ~/dev/tools/ah-companion
 - `.codex-plugin/` — codex plugin manifest (hooks-codex.json; codex sets `CLAUDE_PLUGIN_ROOT` for compat)
 - `hooks/ahc.py` — daemon-socket CLI shared by all hooks
 - `hooks/*.sh` — the four hook flows
+- `tests/hooks.sh` — hook and command tests against a fake daemon (`sh tests/hooks.sh`)
 
 ## Requirements
 
