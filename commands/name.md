@@ -7,8 +7,8 @@ The user wants to rename this session's Agent Hub slug to the value in $ARGUMENT
 Run exactly this bash (replace SLUG with $ARGUMENTS, stripped of whitespace and quotes):
 
 ```bash
-AHC="{{pluginRoot}}/hooks/ahc.py"
-SESSION_FILE=$(ls -t ~/.local/state/ah-companion/session-*.json 2>/dev/null | head -1)
+AHC="${CLAUDE_PLUGIN_ROOT}/hooks/ahc.py"
+SESSION_FILE=$(python3 "$AHC" state-path "${CLAUDE_SESSION_ID}")
 SID=$(jq -r .session_id "$SESSION_FILE")
 python3 "$AHC" rename "$SID" "SLUG"
 ```

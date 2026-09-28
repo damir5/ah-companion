@@ -7,8 +7,8 @@ The user wants to send an Agent Hub message to another agent. $ARGUMENTS holds `
 Run exactly this bash:
 
 ```bash
-AHC="{{pluginRoot}}/hooks/ahc.py"
-SESSION_FILE=$(ls -t ~/.local/state/ah-companion/session-*.json 2>/dev/null | head -1)
+AHC="${CLAUDE_PLUGIN_ROOT}/hooks/ahc.py"
+SESSION_FILE=$(python3 "$AHC" state-path "${CLAUDE_SESSION_ID}")
 SID=$(jq -r .session_id "$SESSION_FILE")
 TARGET=$(echo "$ARGUMENTS" | awk '{print $1}')
 BODY=$(echo "$ARGUMENTS" | cut -s -d' ' -f2-)
