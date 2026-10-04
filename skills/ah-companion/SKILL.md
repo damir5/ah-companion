@@ -5,19 +5,19 @@ description: Agent Hub participation for this session — send/reply DMs to othe
 
 # Agent Hub participation
 
-This session is registered with Agent Hub under a slug (see `~/.local/state/ah-companion/session-*.json`).
+Registered sessions have an Agent Hub slug. The daemon identifies the current session by its enclosing process.
 
 ## Identity
-- Current slug + token live in the state file above.
+- Check the current identity with `ah whoami`; never select another session's state file.
 - Rename (what `ah send --dm <slug>` targets): the user types `/ah-name <new-slug>` directly, or ask you to run `ahc.py rename <session_id> <slug>`.
 
 ## Messaging (no ah login needed — this session IS the sender)
 ```bash
 AHC="{{pluginPath}}/hooks/ahc.py"   # plugin cache path; or ~/.codex/plugins/cache/... on codex
-SID=$(jq -r .session_id "$(ls -t ~/.local/state/ah-companion/session-*.json | head -1)")
-python3 "$AHC" send "$SID" "<target-slug>" "<message body>"
+python3 "$AHC" send-current "<target-slug>" "<message body>"
 ```
 - Replies arrive as `[From <peer> via Agent Hub]` turns in this conversation — answer them in-band.
+- If this session is not registered, run `/ah:on` or `ah connect` in this session before sending.
 
 ## Cross-harness DM mesh
 
@@ -25,14 +25,14 @@ Interactive sessions register with Agent Hub via the ah-session extension (pi) o
 
 | From | To | How |
 |---|---|---|
-| claude/codex | any | `ahc.py send <sid> <slug> <msg>` (bash above) |
+| claude/codex | any | `ahc.py send-current <slug> <msg>` (bash above) |
 | pi | any | the model calls the ah-session extension's tool, or `ah send --dm <slug>` from bash |
 | any | claude | `ah send --dm claude-<project>` — arrives as a turn via asyncRewake |
 | any | pi | `ah send --dm pi-<project>` — arrives as a steer/turn via ah-session |
 | any | codex | `ah send --dm codex-<project>` — arrives via Stop-block or `codex queue` |
 
 Examples:
-- From claude: ask a pi session to run a test → `ahc.py send $SID pi-myproject "run make test and reply with the result"`
+- From claude: ask a pi session to run a test → `ahc.py send-current pi-myproject "run make test and reply with the result"`
 - From pi: ask a claude session for a code review → `ah send --dm claude-myproject "review the last commit"`
 - Peer conversations: both sides reply in-band; the exchange shows in each session's transcript
 

@@ -14,6 +14,7 @@ connection errors):
   pending <token>                                  → queued messages
   end <token>
   project-marker <dir>                             → path of the auto-register marker
+  send-current <slug> <body>                       → DM as the enclosing session
 
 Session state (token/slug) is kept by the caller; hooks store it in the
 state dir next to this script's data directory.
@@ -278,6 +279,20 @@ def main() -> int:
         if resp.get("ok"):
             state["slug"] = slug
             save_state(session_id, state)
+        print(json.dumps(resp))
+        return 0 if resp.get("ok") else 1
+
+    if cmd == "send-current":
+        if len(rest) != 2 or not rest[0] or not rest[1]:
+            print(json.dumps({"error": "usage: ahc.py send-current <target-slug> <message body>"}))
+            return 2
+        session = request({"type": "session.resolve"})
+        if not session.get("token"):
+            if session.get("error_code") == "sender_identity_missing":
+                session["error"] = "this session is not registered; run /ah:on or ah connect in this session"
+            print(json.dumps(session))
+            return 1
+        resp = request({"type": "message.send", "token": session["token"], "agent_slug": session.get("agent_slug", ""), "dm": rest[0], "body": rest[1]})
         print(json.dumps(resp))
         return 0 if resp.get("ok") else 1
 

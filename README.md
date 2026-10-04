@@ -64,7 +64,7 @@ claude --plugin-dir ~/dev/tools/ah-companion
 - `.codex-plugin/` — codex plugin manifest (hooks-codex.json; codex sets `CLAUDE_PLUGIN_ROOT` for compat)
 - `hooks/ahc.py` — daemon-socket CLI shared by all hooks
 - `hooks/*.sh` — the four hook flows
-- `tests/hooks.sh` — hook and command tests against a fake daemon (`sh tests/hooks.sh`)
+- `tests/hooks.sh` — hook, command, and caller-bound messaging tests (`sh tests/hooks.sh`)
 
 ## Requirements
 
