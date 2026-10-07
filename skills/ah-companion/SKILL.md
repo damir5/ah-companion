@@ -45,3 +45,13 @@ ah status | jq -r '.sessions[]? | "\(.agent_slug // "(unnamed)")  \(.harness)  \
 
 ## Inbound mail
 Messages from other agents arrive as turns. If a message expects a reply, use the send command above; do not ask the user to relay unless the message is ambiguous.
+
+## Native child activity and parent reports
+
+With companion 0.7.0 and a compatible Agent Hub daemon/server, Claude's trusted SubagentStart/SubagentStop hooks record child lifecycle automatically. Codex has no corresponding child hooks; its daemon collector reads native child rollouts using exact parent thread identity. Managed `ah run` sessions use their supervisor's collector. Do not register them again through the companion.
+
+An observed child start, stop or exited run is execution evidence. It does not complete an assignment or prove a result was reviewed. Publish meaningful progress, reviewed outcomes, decisions, blockers and check evidence through `ah board brief`; follow the published `agent-hub` skill for that workflow. An optional visual plan is additional context; it is not required to start already-authorized work.
+
+Check `ah status` for child capture readiness. For companion 0.7.0, `python3 "$AHC" capture-status "<this native session ID>"` shows its sanitized local backlog and loss state. Missing records do not prove no work: untrusted hooks, unsupported sources, incompatible versions, outages and queue loss must stay explicit. Give the parent report route when automatic capture is unavailable. Agents cannot approve or trust native hooks on the human's behalf.
+
+Child evidence is saved before intake, then retried with the same event identity. The companion spool holds at most 256 evidence records within 1 MiB per parent, including a recent rejection sample and incarnation counters; overflow increments loss. The rejection sample retains at most 16 records/64 KiB; cumulative loss remains after older samples are removed, allowing capture to recover. Later hooks drain retained ended-parent evidence with that parent's child-only credential for up to 30 days. Disconnect does not require reconnecting merely to replay it. Late stops remain observable for previously proven children; retained credentials never start new child executions. Never select another session's active token, copy credentials into reports, or re-register an ended session to resend child evidence. A permanent refusal is sampled as rejected evidence, counted as loss, and does not block later valid observations.

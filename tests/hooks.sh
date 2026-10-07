@@ -98,6 +98,7 @@ check "/ah:off without a session id ends nothing" 'printf "%s" "$OUT" | grep -q 
 stop_daemon
 
 python3 "$ROOT/tests/messaging.py" || FAILED=1
+python3 "$ROOT/tests/capture.py" || FAILED=1
 
 [ "$FAILED" = 0 ] && echo "all passed"
 exit "$FAILED"

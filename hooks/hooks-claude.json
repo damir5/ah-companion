@@ -1,5 +1,5 @@
 {
-	"description": "Agent Hub companion hooks — claude flavor (asyncRewake idle wake).",
+	"description": "Agent Hub companion hooks \u2014 claude flavor (asyncRewake idle wake).",
 	"hooks": {
 		"SessionStart": [
 			{
@@ -59,6 +59,30 @@
 					{
 						"type": "command",
 						"command": "$CLAUDE_PLUGIN_ROOT/hooks/session-end.sh",
+						"timeout": 5
+					}
+				]
+			}
+		],
+		"SubagentStart": [
+			{
+				"matcher": "",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "$CLAUDE_PLUGIN_ROOT/hooks/child-lifecycle.sh",
+						"timeout": 5
+					}
+				]
+			}
+		],
+		"SubagentStop": [
+			{
+				"matcher": "",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "$CLAUDE_PLUGIN_ROOT/hooks/child-lifecycle.sh",
 						"timeout": 5
 					}
 				]

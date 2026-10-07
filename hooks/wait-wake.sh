@@ -5,6 +5,7 @@
 # next SessionStart/Stop hook firing.
 # stdin: hook JSON {session_id}
 set -u
+[ "${AH_COMPANION_DISABLE:-}" = 1 ] && exit 0
 INPUT=$(cat)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty')
 [ -n "$SESSION_ID" ] || exit 0

@@ -5,6 +5,7 @@
 # tiny keystroke without polluting the conversation.
 # stdin: hook JSON {session_id, prompt, cwd}
 set -eu
+[ "${AH_COMPANION_DISABLE:-}" = 1 ] && exit 0
 INPUT=$(cat)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty')
 PROMPT=$(printf '%s' "$INPUT" | jq -r '.prompt // empty')
@@ -22,7 +23,7 @@ if [ "${AH_COMPANION_HARNESS:-claude}" = "claude" ]; then
 			printf '%s' "$INPUT" | "$CLAUDE_PLUGIN_ROOT/hooks/session-start.sh"
 			SLUG=$(jq -r '.slug // empty' "$STATE" 2>/dev/null || true)
 			if [ -n "$SLUG" ]; then
-				printf '{"decision":"block","reason":"[Agent Hub] connected as %s; new sessions in this project register automatically."}' "$SLUG"
+				jq -cn --arg slug "$SLUG" '{decision:"block",reason:("[Agent Hub] connected as "+$slug+"; new sessions in this project register automatically.")}'
 			else
 				printf '{"decision":"block","reason":"[Agent Hub] registration failed; check that the ah daemon is running (ah status)."}'
 			fi
@@ -48,6 +49,7 @@ fi
 TOKEN=$(jq -r '.token // empty' "$STATE" 2>/dev/null || true)
 [ -n "$TOKEN" ] || exit 0
 
+"$AHC" flush-children "$SESSION_ID" >/dev/null 2>&1 || true
 PENDING=$("$AHC" pending "$TOKEN" 2>/dev/null || true)
 BODIES=$(printf '%s' "$PENDING" | jq -r '.. | .body? // empty' 2>/dev/null || true)
 
@@ -59,9 +61,9 @@ if [ "${AH_COMPANION_HARNESS:-claude}" = "claude" ]; then
 			if [ -n "$NEW" ]; then
 				RES=$("$AHC" rename "$SESSION_ID" "$NEW" 2>/dev/null || true)
 				if printf '%s' "$RES" | grep -q '"ok": *true'; then
-					printf '{"decision":"block","reason":"[Agent Hub] session renamed to %s"}' "$NEW"
+					jq -cn --arg name "$NEW" '{decision:"block",reason:("[Agent Hub] session renamed to "+$name)}'
 				else
-					printf '{"decision":"block","reason":"[Agent Hub] rename failed: %s"}' "$(printf '%s' "$RES" | head -c 200)"
+					jq -cn --arg result "$(printf '%s' "$RES" | head -c 200)" '{decision:"block",reason:("[Agent Hub] rename failed: "+$result)}'
 				fi
 				exit 0
 			fi
@@ -77,7 +79,7 @@ if [ "${AH_COMPANION_HARNESS:-claude}" = "claude" ] && [ "$PROMPT" = "ah-wake" ]
 			[ -n "$MID" ] && "$AHC" ack "$TOKEN" "$MID" >/dev/null 2>&1 || true
 		done
 		CONTEXT=$(printf '%s' "$BODIES" | head -c 4000)
-		printf '{"decision":"block","reason":"[Agent Hub mail]\\n%s"}' "$CONTEXT"
+		jq -cn --arg context "$CONTEXT" '{decision:"block",reason:("[Agent Hub mail]\n"+$context)}'
 		exit 0
 	fi
 	printf '{"decision":"block","reason":"[Agent Hub] no pending mail."}'
@@ -91,6 +93,6 @@ if [ -n "$BODIES" ]; then
 		[ -n "$MID" ] && "$AHC" ack "$TOKEN" "$MID" >/dev/null 2>&1 || true
 	done
 	CONTEXT=$(printf '%s' "$BODIES" | head -c 4000)
-	printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"[Agent Hub mail]\\n%s"}}' "$CONTEXT"
+	jq -cn --arg context "$CONTEXT" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:("[Agent Hub mail]\n"+$context)}}'
 fi
 exit 0
