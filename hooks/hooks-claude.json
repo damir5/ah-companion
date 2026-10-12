@@ -15,7 +15,7 @@
 						"command": "$CLAUDE_PLUGIN_ROOT/hooks/wait-wake.sh",
 						"async": true,
 						"asyncRewake": true,
-						"timeout": 1800,
+						"timeout": 604800,
 						"statusMessage": "ah-companion listening"
 					}
 				]
@@ -35,7 +35,7 @@
 						"command": "$CLAUDE_PLUGIN_ROOT/hooks/wait-wake.sh",
 						"async": true,
 						"asyncRewake": true,
-						"timeout": 1800
+						"timeout": 604800
 					}
 				]
 			}

@@ -16,7 +16,7 @@ Registered sessions have an Agent Hub slug. The daemon identifies the current se
 AHC="{{pluginPath}}/hooks/ahc.py"   # plugin cache path; or ~/.codex/plugins/cache/... on codex
 python3 "$AHC" send-current "<target-slug>" "<message body>"
 ```
-- Replies arrive as `[From <peer> via Agent Hub]` turns in this conversation — answer them in-band.
+- Replies arrive as turns in this conversation that start with `[From <peer> via Agent Hub; room <room>; thread <root-id>; id <id>; reply: ah reply --reply-to <id> "<text>"]` (room and thread only when the message has them). To answer in the same thread, run that `ah reply` command.
 - If this session is not registered, run `/ah:on` or `ah connect` in this session before sending.
 
 ## Cross-harness DM mesh

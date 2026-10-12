@@ -10,6 +10,8 @@ AHC="$CLAUDE_PLUGIN_ROOT/hooks/ahc.py"
 STATE=$("$AHC" state-path "$SESSION_ID" 2>/dev/null || true)
 [ -n "$STATE" ] && [ -f "$STATE" ] || exit 0
 "$AHC" end "$SESSION_ID" >/dev/null 2>&1 || true
+# The harness kills the idle waiter without letting it clean up.
+rm -f "$STATE.waiter"
 # Sessions whose harness pid dies are reaped by the daemon anyway; this is
 # best-effort cleanliness.
 exit 0

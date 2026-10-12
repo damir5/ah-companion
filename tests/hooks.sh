@@ -95,6 +95,13 @@ check "/ah:off leaves the other session registered" '[ -f "$(state "$B")" ]'
 check "/ah:off removes the marker" '[ ! -f "$(marker "$APP")" ]'
 OUT=$(command_md off "" "$APP")
 check "/ah:off without a session id ends nothing" 'printf "%s" "$OUT" | grep -q "could not be identified" && [ -f "$(state "$B")" ]'
+
+# Codex has no plugin commands: the words are its only way to opt in or out.
+C=thr_codex
+OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-on)
+check "codex ah-on registers the session as codex" 'printf "%s" "$OUT" | grep -q "connected as codex-app" && [ -f "$(state "$C")" ] && [ -f "$(marker "$APP")" ]'
+OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-off)
+check "codex ah-off disconnects and switches the project off" 'printf "%s" "$OUT" | grep -q disconnected && [ ! -f "$(state "$C")" ] && [ ! -f "$(marker "$APP")" ]'
 stop_daemon
 
 python3 "$ROOT/tests/messaging.py" || FAILED=1

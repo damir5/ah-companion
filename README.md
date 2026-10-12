@@ -9,9 +9,9 @@ injection, no screen scraping.
 | Event | Behavior |
 |---|---|
 | `SessionStart` | if the project is switched on (see below), registers the session with the local ah daemon (`claude-<project>` / `codex-<project>` slug) and (claude) arms a background waiter |
-| **idle + claude** | `asyncRewake` waiter long-polls the daemon; an arriving message wakes Claude with the message as a system reminder — a real triggered turn |
-| turn boundary | `Stop` hook blocks the stop with the first pending message — the harness processes it as turn continuation (claude + codex) |
-| your next prompt | `UserPromptSubmit` drains pending mail into the turn as context and acks it; on claude the `ah-wake` nudge word is swallowed and replaced by the mail |
+| **idle + claude** | `asyncRewake` waiter long-polls the daemon and re-arms the wait while the session lives (one waiter per session); an arriving message wakes Claude with the message as a system reminder — a real triggered turn |
+| turn boundary | `Stop` hook blocks the stop with the first pending message and acks only that one — the harness processes it as turn continuation (claude + codex) |
+| your next prompt | `UserPromptSubmit` adds pending mail into the turn as context, whole messages up to 8000 bytes, and acks only those; the rest wait for the next delivery point. On claude the `ah-wake` nudge word is swallowed and replaced by the mail |
 | `SessionEnd` | ends the daemon registration |
 | Claude `SubagentStart` / `SubagentStop` | records the native child ID under the enclosing parent and sends bounded durable observations to Agent Hub |
 | idle + codex | senders use the native `codex queue --thread <id> --message` (no asyncRewake in codex) |
@@ -88,10 +88,15 @@ Every command works two ways: as a plugin slash command (`/ah:<name>`) or as a m
 | Show identity + fleet roster | `/ah:status` | `ah-wake` |
 | Rename this session | `/ah:name <slug>` | `/ah-name <slug>` |
 | DM another agent | `/ah:send <slug> <msg>` | — |
-| Disconnect and switch the project off | `/ah:off` | `/ah-off` |
-| Connect and switch the project on | `/ah:on` | `/ah-on` |
+| Disconnect and switch the project off | `/ah:off` | `/ah-off` (codex: `ah-off`) |
+| Connect and switch the project on | `/ah:on` | `/ah-on` (codex: `ah-on`) |
 
 ## Limits / notes
+
+- Each delivered message starts with one header line: sender, room, thread root id,
+  message id, and the reply command `ah reply --reply-to <id> "<text>"`.
+- Codex has no plugin slash commands and its TUI rejects unknown `/...` input, so
+  a Codex session switches itself on or off with the words `ah-on` and `ah-off`.
 
 - Claude lifecycle capture is ready only after a native hook is observed and its
   evidence is accepted locally. Before then, Agent Hub shows capture as unverified.
@@ -118,4 +123,6 @@ Every command works two ways: as a plugin slash command (`/ah:<name>`) or as a m
   sender-side via `codex queue`; the plugin covers active sessions.
 - Hook processes see the session cwd; registration slug derives from it
   (`claude-<basename>`), same convention as the pi ah-session extension.
+  When another live session holds that slug, the hub picks a free name
+  (`auto_name`); the session keeps that name in its state.
 - Kill switch: disable the plugin (`/plugin`), or `AH_COMPANION_DISABLE=1` env.

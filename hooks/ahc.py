@@ -12,6 +12,8 @@ connection errors):
   ack <token> <message_id>
   fail <token> <message_id> <reason>
   pending <token>                                  → queued messages
+  deliver <token> [max_messages]                   → render + ack pending messages that fit
+  wake-wait <native_session_id>                    → claude idle waiter; exit 2 + message on stderr
   end <native_session_id> [token]
   flush-children <native_session_id>               → bounded child evidence replay
   capture-status <native_session_id>               → sanitized capture readiness/backlog
@@ -389,6 +391,119 @@ def flush_retained_children(deadline: float) -> None:
     atomic_json(cursor_path, position)
 
 
+# Bytes of message text per delivery. Claude replaces hook output above
+# 10000 characters with a file preview, so stay below that.
+DELIVERY_BUDGET = 8000
+# One daemon wait; the waiter re-arms it until a message arrives.
+WAIT_SECONDS = 1700
+
+
+def render_message(message: dict, limit: int = DELIVERY_BUDGET) -> str:
+    """One header line (sender, room, thread root, id, reply hint), then the body.
+    A body that does not fit in limit is cut and says so."""
+    mid = message.get("id") or ""
+    parts = [f"From {message.get('sender_id') or message.get('from') or 'ah'} via Agent Hub"]
+    if message.get("room"):
+        parts.append(f"room {message['room']}")
+    root = message.get("thread_root_id")
+    if root and root != mid:
+        parts.append(f"thread {root}")
+    if mid:
+        parts += [f"id {mid}", f'reply: ah reply --reply-to {mid} "<text>"']
+    text = "[" + "; ".join(parts) + "]\n" + (message.get("body") or "")
+    data = text.encode("utf-8")
+    if len(data) <= limit:
+        return text
+    note = f"\n[message cut at {limit} bytes]"
+    return data[: limit - len(note.encode("utf-8"))].decode("utf-8", "ignore") + note
+
+
+def deliver(token: str, max_messages: int = 0) -> str:
+    """Render whole pending messages, oldest first, while they fit in the
+    budget; ack only those. The rest stay pending for the next delivery point.
+    Only a first message larger than the budget is delivered cut; later
+    ones are delivered whole or not at all."""
+    pending = request({"type": "message.pending", "token": token})
+    messages = [m for m in pending.get("messages") or [] if isinstance(m, dict) and m.get("id") and m.get("body") is not None]
+    shown, used = [], 0
+    for message in messages:
+        if max_messages and len(shown) >= max_messages:
+            break
+        text = render_message(message, DELIVERY_BUDGET if not shown else sys.maxsize)
+        size = len(text.encode("utf-8")) + 2
+        if shown and used + size > DELIVERY_BUDGET:
+            break
+        try:
+            if not request({"type": "message.ack", "token": token, "message_id": message["id"]}).get("ok"):
+                break
+        except SystemExit:
+            break
+        shown.append(text)
+        used += size
+    left = len(messages) - len(shown)
+    if shown and left:
+        shown.append(f"[{left} more Agent Hub message(s) pending; they arrive at the next turn boundary]")
+    return "\n\n".join(shown)
+
+
+def wake_wait(session_id: str) -> int:
+    """Claude idle waiter: long-poll until a message arrives, re-arming the
+    daemon wait on every timeout while the session stays registered and its
+    harness is alive. One waiter per session: a second one exits at once.
+    Returns 2 with the rendered message on stderr (wakes claude), else 0."""
+    path = state_file(session_id) + ".waiter"
+    with open(path, "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return 0
+        try:
+            return _wake_wait_locked(session_id)
+        finally:
+            # Removed while still locked, so no other waiter holds this file.
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
+def _wake_wait_locked(session_id: str) -> int:
+    timeout, backoff = WAIT_SECONDS, 10
+    while True:
+        state = load_state(session_id)
+        token, pid = state.get("token"), state.get("harness_pid")
+        if not token or state.get("ended_at"):
+            return 0
+        if pid:
+            try:
+                os.kill(int(pid), 0)
+            except ProcessLookupError:
+                return 0
+            except PermissionError:
+                pass
+        try:
+            resp = request({"type": "wait", "token": token, "timeout_ms": timeout * 1000}, timeout + 20)
+        except SystemExit:
+            resp = {"error": "daemon unreachable"}
+        if resp.get("status") == "message" and isinstance(resp.get("message"), dict):
+            message = resp["message"]
+            if message.get("id"):
+                try:
+                    request({"type": "message.ack", "token": token, "message_id": message["id"]})
+                except SystemExit:
+                    pass
+            print(render_message(message), file=sys.stderr)
+            return 2
+        if resp.get("status") == "timeout":
+            backoff = 10
+            continue
+        # Hub down (disconnect), daemon restarting (unreachable, empty
+        # response) or any other error: retry with backoff instead of going
+        # deaf. Only a gone session or harness, checked above, ends the loop.
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 60)
+
+
 def main() -> int:
     args = sys.argv[1:]
     if not args:
@@ -409,30 +524,36 @@ def main() -> int:
             uuid.UUID(session_id)
         except (ValueError, AttributeError):
             session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{harness}:{session_id}"))
-        token = load_state(native_id).get("token") or secrets.token_urlsafe(32)
+        saved = load_state(native_id)
+        token = saved.get("token") or secrets.token_urlsafe(32)
+        # Re-registration keeps the name the hub gave this session earlier.
+        slug = saved.get("slug") or slug
         # The session must live as long as the HARNESS process, not this
         # short-lived hook. Hooks may run under transient harness workers,
         # so climb the ancestor chain to the TOPMOST matching harness
         # process — the daemon reaps sessions whose pid dies.
         harness_pid = int(os.environ.get("AH_COMPANION_HARNESS_PID") or 0) or resolve_harness_pid(harness)
-        resp = request(
-            {
-                "type": "session.register",
-                "session_id": session_id,
-                "agent_slug": slug,
-                "pid": harness_pid,
-                "token": token,
-                "harness": harness,
-                "driver": "stream",
-                "cwd": os.getcwd(),
-                "project": os.path.basename(os.getcwd()),
-                "activity": "idle",
-                "owner_ref": f"{harness}:{native_id}",
-                **({"model": model} if model else {}),
-            },
-            timeout=2,
-        )
+        registration = {
+            "type": "session.register",
+            "session_id": session_id,
+            "agent_slug": slug,
+            "pid": harness_pid,
+            "token": token,
+            "harness": harness,
+            "driver": "stream",
+            "cwd": os.getcwd(),
+            "project": os.path.basename(os.getcwd()),
+            "activity": "idle",
+            "owner_ref": f"{harness}:{native_id}",
+            **({"model": model} if model else {}),
+        }
+        resp = request(registration, timeout=2)
+        # Another live session holds <harness>-<folder> (a second session in
+        # the same directory): let the hub pick a free name.
+        if resp.get("error_code") == "identity_unavailable":
+            resp = request({**registration, "auto_name": True}, timeout=2)
         if resp.get("ok"):
+            slug = resp.get("agent_slug") or slug
             save_state(native_id, {"token": token, "slug": slug, "session_id": session_id,
                 "native_session_id": native_id, "harness": harness, "harness_pid": harness_pid})
             deadline = time.monotonic() + 1
@@ -466,6 +587,13 @@ def main() -> int:
         resp = request({"type": "message.pending", "token": token})
         print(json.dumps(resp))
         return 0
+
+    if cmd == "deliver":
+        print(deliver(rest[0], int(rest[1]) if len(rest) > 1 else 0))
+        return 0
+
+    if cmd == "wake-wait":
+        return wake_wait(rest[0])
 
     if cmd == "end":
         state = load_state(rest[0]) if rest else {}
