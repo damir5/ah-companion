@@ -29,7 +29,7 @@ Sessions do not register by default, so the hub is not flooded with a
 `<harness>-<folder>` identity for every session. A session registers at start
 only when one of these holds:
 
-- the project was switched on with `/ah:on` (or the `/ah-on` magic word), which
+- the project was switched on with `/ah:on` (Codex: the word `ah-on`), which
   also registers the current session immediately. The switch is a marker file
   in `~/.local/state/ah-companion/`, keyed by a hash of the project's Git root
   (markers from 0.6.0 are not read; switch the project on again).
@@ -38,10 +38,10 @@ only when one of these holds:
 A session that is not registered yet registers on its next prompt when its
 project has a marker, for example after the daemon was down at session start.
 
-`/ah:name <slug>` (or `/ah-name <slug>`) also registers a session that is not
+`/ah:name <slug>` also registers a session that is not
 registered yet, under that name, without switching the project on.
 
-`/ah:off` (or `/ah-off`) disconnects the current session and removes the
+`/ah:off` (Codex: `ah-off`) disconnects the current session and removes the
 project's marker; it works even when the session never registered.
 
 ## Install
@@ -84,22 +84,23 @@ commands are for the human. Agents launch separate harness runs through `ah run`
 
 ## Commands
 
-Every command works two ways: as a plugin slash command (`/ah:<name>`) or as a magic word typed directly (intercepted before the model — zero token cost).
-
-| What | Plugin command | Magic word |
+| What | Claude | Codex |
 |---|---|---|
-| Show identity + fleet roster | `/ah:status` | `ah-wake` |
-| Name this session (registers it if needed) | `/ah:name <slug>` | `/ah-name <slug>` |
-| DM another agent | `/ah:send <slug> <msg>` | — |
-| Disconnect and switch the project off | `/ah:off` | `/ah-off` (codex: `ah-off`) |
-| Connect and switch the project on | `/ah:on` | `/ah-on` (codex: `ah-on`) |
+| Name this session (registers it if needed) | `/ah:name <slug>` | — |
+| Show identity + fleet roster | `/ah:status` | `ah status` |
+| Disconnect and switch the project off | `/ah:off` | type `ah-off` |
+| Register every new session in this project | `/ah:on` | type `ah-on` |
+| DM another agent | `/ah:send <slug> <msg>` | `ah send --dm <slug> <msg>` |
+
+Codex has no plugin slash commands and its TUI rejects unknown `/...` input, so
+the words `ah-on` and `ah-off` are its only way to switch on or off. Claude also
+accepts them. `ah-wake` is not a user command: the daemon types it to wake an
+idle Claude session and deliver pending messages.
 
 ## Limits / notes
 
 - Each delivered message starts with one header line: sender, room, thread root id,
   message id, and the reply command `ah reply --reply-to <id> "<text>"`.
-- Codex has no plugin slash commands and its TUI rejects unknown `/...` input, so
-  a Codex session switches itself on or off with the words `ah-on` and `ah-off`.
 
 - Claude lifecycle capture is ready only after a native hook is observed and its
   evidence is accepted locally. Before then, Agent Hub shows capture as unverified.

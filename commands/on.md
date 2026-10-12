@@ -1,5 +1,5 @@
 ---
-description: Connect this session to Agent Hub and register new sessions in this project automatically
+description: Register every new session in this project automatically (and this one now); to name only this session use /ah:name
 ---
 
 Switch Agent Hub on for this project and register this session. Run this bash:

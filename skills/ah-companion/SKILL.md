@@ -9,7 +9,7 @@ Registered sessions have an Agent Hub slug. The daemon identifies the current se
 
 ## Identity
 - Check the current identity with `ah whoami`; never select another session's state file.
-- Rename (what `ah send --dm <slug>` targets): the user types `/ah-name <new-slug>` directly, or ask you to run `ahc.py rename <session_id> <slug>`.
+- Name or rename (what `ah send --dm <slug>` targets): the user runs `/ah:name <slug>`, which also registers an unregistered session; or run `ahc.py rename <session_id> <slug>`.
 
 ## Messaging (no ah login needed — this session IS the sender)
 ```bash
@@ -17,11 +17,11 @@ AHC="{{pluginPath}}/hooks/ahc.py"   # plugin cache path; or ~/.codex/plugins/cac
 python3 "$AHC" send-current "<target-slug>" "<message body>"
 ```
 - Replies arrive as turns in this conversation that start with `[From <peer> via Agent Hub; room <room>; thread <root-id>; id <id>; reply: ah reply --reply-to <id> "<text>"]` (room and thread only when the message has them). To answer in the same thread, run that `ah reply` command.
-- If this session is not registered, run `/ah:on` or `ah connect` in this session before sending.
+- If this session is not registered, ask the user to run `/ah:name <slug>` in this session before sending.
 
 ## Cross-harness DM mesh
 
-Interactive sessions register with Agent Hub via the ah-session extension (pi) or the ah plugin (claude/codex). The plugin registers a claude/codex session only in projects switched on with `/ah:on`, or when `AH_COMPANION_AUTOREGISTER=1`. You can DM any registered session:
+Interactive sessions register with Agent Hub via the ah-session extension (pi) or the ah plugin (claude/codex). The plugin registers a claude session when the user runs `/ah:name <slug>`, and every session in projects switched on with `/ah:on` (codex: `ah-on`) or when `AH_COMPANION_AUTOREGISTER=1`. You can DM any registered session:
 
 | From | To | How |
 |---|---|---|

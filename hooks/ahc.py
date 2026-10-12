@@ -684,7 +684,7 @@ def main() -> int:
         session = request({"type": "session.resolve"})
         if not session.get("token"):
             if session.get("error_code") == "sender_identity_missing":
-                session["error"] = "this session is not registered; run /ah:on or ah connect in this session"
+                session["error"] = "this session is not registered; run /ah:name <slug> in this session"
             print(json.dumps(session))
             return 1
         resp = request({"type": "message.send", "token": session["token"], "agent_slug": session.get("agent_slug", ""), "dm": rest[0], "body": rest[1]})

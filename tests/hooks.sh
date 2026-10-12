@@ -65,13 +65,13 @@ check "distinct directories get distinct markers" '[ "$(marker "$WORK/projects/a
 ln -s "$APP" "$WORK/link"
 check "a symlinked path shares the canonical marker" '[ "$(marker "$WORK/link")" = "$(marker "$APP")" ]'
 
-# Daemon down: /ah-on leaves a marker and no registration; /ah-off still clears it.
-OUT=$(prompt "$A" "$APP" /ah-on)
-check "/ah-on with the daemon down reports failure" 'printf "%s" "$OUT" | grep -q "registration failed"'
-check "/ah-on with the daemon down leaves the marker" '[ -f "$(marker "$APP")" ]'
-OUT=$(prompt "$A" "$APP" /ah-off)
-check "/ah-off without a state file answers" 'printf "%s" "$OUT" | grep -q disconnected'
-check "/ah-off without a state file removes the marker" '[ ! -f "$(marker "$APP")" ]'
+# Daemon down: ah-on leaves a marker and no registration; ah-off still clears it.
+OUT=$(prompt "$A" "$APP" ah-on)
+check "ah-on with the daemon down reports failure" 'printf "%s" "$OUT" | grep -q "registration failed"'
+check "ah-on with the daemon down leaves the marker" '[ -f "$(marker "$APP")" ]'
+OUT=$(prompt "$A" "$APP" ah-off)
+check "ah-off without a state file answers" 'printf "%s" "$OUT" | grep -q disconnected'
+check "ah-off without a state file removes the marker" '[ ! -f "$(marker "$APP")" ]'
 
 start_daemon
 # A marker set elsewhere: the next ordinary prompt registers the session.
@@ -93,10 +93,6 @@ sed -n '/^```bash$/,/^```$/p' "$WORK/name.md" | sed '1d;$d' |
 	sed -e "s|\${CLAUDE_PLUGIN_ROOT}|$ROOT|g" -e "s|\${CLAUDE_SESSION_ID}|$D|g" >"$WORK/cmd.sh"
 OUT=$(cd "$APP" && sh "$WORK/cmd.sh")
 check "/ah:name registers an unregistered session under that name" '[ "$(jq -r .slug "$(state "$D")")" = team-worker ]'
-
-E=55555555-5555-4555-8555-555555555555
-OUT=$(prompt "$E" "$APP" "/ah-name typed-worker")
-check "/ah-name registers an unregistered session under that name" '[ "$(jq -r .slug "$(state "$E")")" = typed-worker ] && printf "%s" "$OUT" | grep -q "session named typed-worker"'
 
 # /ah:off ends only the current session, not the newest one.
 : >"$WORK/requests.log"
