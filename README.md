@@ -38,6 +38,9 @@ only when one of these holds:
 A session that is not registered yet registers on its next prompt when its
 project has a marker, for example after the daemon was down at session start.
 
+`/ah:name <slug>` (or `/ah-name <slug>`) also registers a session that is not
+registered yet, under that name, without switching the project on.
+
 `/ah:off` (or `/ah-off`) disconnects the current session and removes the
 project's marker; it works even when the session never registered.
 
@@ -86,7 +89,7 @@ Every command works two ways: as a plugin slash command (`/ah:<name>`) or as a m
 | What | Plugin command | Magic word |
 |---|---|---|
 | Show identity + fleet roster | `/ah:status` | `ah-wake` |
-| Rename this session | `/ah:name <slug>` | `/ah-name <slug>` |
+| Name this session (registers it if needed) | `/ah:name <slug>` | `/ah-name <slug>` |
 | DM another agent | `/ah:send <slug> <msg>` | — |
 | Disconnect and switch the project off | `/ah:off` | `/ah-off` (codex: `ah-off`) |
 | Connect and switch the project on | `/ah:on` | `/ah-on` (codex: `ah-on`) |

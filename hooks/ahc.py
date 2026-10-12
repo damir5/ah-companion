@@ -504,6 +504,53 @@ def _wake_wait_locked(session_id: str) -> int:
         backoff = min(backoff * 2, 60)
 
 
+def register(harness: str, slug: str, session_id: str, model: str = "", auto_name: bool = True) -> int:
+    native_id = session_id
+    # The daemon requires a UUID session id; codex threads are thr_…
+    # strings, so derive a stable UUID from the harness-native id.
+    try:
+        uuid.UUID(session_id)
+    except (ValueError, AttributeError):
+        session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{harness}:{session_id}"))
+    saved = load_state(native_id)
+    token = saved.get("token") or secrets.token_urlsafe(32)
+    # Re-registration keeps the name the hub gave this session earlier.
+    slug = saved.get("slug") or slug
+    # The session must live as long as the HARNESS process, not this
+    # short-lived hook. Hooks may run under transient harness workers,
+    # so climb the ancestor chain to the TOPMOST matching harness
+    # process — the daemon reaps sessions whose pid dies.
+    harness_pid = int(os.environ.get("AH_COMPANION_HARNESS_PID") or 0) or resolve_harness_pid(harness)
+    registration = {
+        "type": "session.register",
+        "session_id": session_id,
+        "agent_slug": slug,
+        "pid": harness_pid,
+        "token": token,
+        "harness": harness,
+        "driver": "stream",
+        "cwd": os.getcwd(),
+        "project": os.path.basename(os.getcwd()),
+        "activity": "idle",
+        "owner_ref": f"{harness}:{native_id}",
+        **({"model": model} if model else {}),
+    }
+    resp = request(registration, timeout=2)
+    # Another live session holds <harness>-<folder> (a second session in
+    # the same directory): let the hub pick a free name.
+    if auto_name and resp.get("error_code") == "identity_unavailable":
+        resp = request({**registration, "auto_name": True}, timeout=2)
+    if resp.get("ok"):
+        slug = resp.get("agent_slug") or slug
+        save_state(native_id, {"token": token, "slug": slug, "session_id": session_id,
+            "native_session_id": native_id, "harness": harness, "harness_pid": harness_pid})
+        deadline = time.monotonic() + 1
+        flush_children(native_id, deadline=deadline)
+        flush_retained_children(deadline)
+    print(json.dumps(resp))
+    return 0 if resp.get("ok") else 1
+
+
 def main() -> int:
     args = sys.argv[1:]
     if not args:
@@ -515,52 +562,7 @@ def main() -> int:
         return 0
 
     if cmd == "register":
-        harness, slug, session_id = rest[0], rest[1], rest[2]
-        native_id = session_id
-        model = rest[3] if len(rest) > 3 else ""
-        # The daemon requires a UUID session id; codex threads are thr_…
-        # strings, so derive a stable UUID from the harness-native id.
-        try:
-            uuid.UUID(session_id)
-        except (ValueError, AttributeError):
-            session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{harness}:{session_id}"))
-        saved = load_state(native_id)
-        token = saved.get("token") or secrets.token_urlsafe(32)
-        # Re-registration keeps the name the hub gave this session earlier.
-        slug = saved.get("slug") or slug
-        # The session must live as long as the HARNESS process, not this
-        # short-lived hook. Hooks may run under transient harness workers,
-        # so climb the ancestor chain to the TOPMOST matching harness
-        # process — the daemon reaps sessions whose pid dies.
-        harness_pid = int(os.environ.get("AH_COMPANION_HARNESS_PID") or 0) or resolve_harness_pid(harness)
-        registration = {
-            "type": "session.register",
-            "session_id": session_id,
-            "agent_slug": slug,
-            "pid": harness_pid,
-            "token": token,
-            "harness": harness,
-            "driver": "stream",
-            "cwd": os.getcwd(),
-            "project": os.path.basename(os.getcwd()),
-            "activity": "idle",
-            "owner_ref": f"{harness}:{native_id}",
-            **({"model": model} if model else {}),
-        }
-        resp = request(registration, timeout=2)
-        # Another live session holds <harness>-<folder> (a second session in
-        # the same directory): let the hub pick a free name.
-        if resp.get("error_code") == "identity_unavailable":
-            resp = request({**registration, "auto_name": True}, timeout=2)
-        if resp.get("ok"):
-            slug = resp.get("agent_slug") or slug
-            save_state(native_id, {"token": token, "slug": slug, "session_id": session_id,
-                "native_session_id": native_id, "harness": harness, "harness_pid": harness_pid})
-            deadline = time.monotonic() + 1
-            flush_children(native_id, deadline=deadline)
-            flush_retained_children(deadline)
-        print(json.dumps(resp))
-        return 0 if resp.get("ok") else 1
+        return register(rest[0], rest[1], rest[2], rest[3] if len(rest) > 3 else "")
 
     if cmd == "wait":
         token = rest[0]
@@ -665,9 +667,9 @@ def main() -> int:
         session_id, slug = rest[0], rest[1]
         state = load_state(session_id)
         token = rest[2] if len(rest) > 2 else state.get("token", "")
+        # Not registered yet: naming the session registers it under that name.
         if not token:
-            print(json.dumps({"error": "no registration state for session"}))
-            return 1
+            return register(os.environ.get("AH_COMPANION_HARNESS", "claude"), slug, session_id, auto_name=False)
         resp = request({"type": "session.rename", "token": token, "agent_slug": slug})
         if resp.get("ok"):
             state["slug"] = slug

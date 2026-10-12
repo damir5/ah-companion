@@ -86,6 +86,18 @@ check "a prompt does not register when the project is off" '[ ! -f "$(state "$B"
 OUT=$(command_md on "$B" "$APP")
 check "/ah:on registers this session" 'printf "%s" "$OUT" | grep -q "registered as: claude-app"'
 
+# /ah:name names a session that was never registered: no /ah:on needed.
+D=44444444-4444-4444-8444-444444444444
+sed 's/"SLUG"/"team-worker"/' "$ROOT/commands/name.md" >"$WORK/name.md"
+sed -n '/^```bash$/,/^```$/p' "$WORK/name.md" | sed '1d;$d' |
+	sed -e "s|\${CLAUDE_PLUGIN_ROOT}|$ROOT|g" -e "s|\${CLAUDE_SESSION_ID}|$D|g" >"$WORK/cmd.sh"
+OUT=$(cd "$APP" && sh "$WORK/cmd.sh")
+check "/ah:name registers an unregistered session under that name" '[ "$(jq -r .slug "$(state "$D")")" = team-worker ]'
+
+E=55555555-5555-4555-8555-555555555555
+OUT=$(prompt "$E" "$APP" "/ah-name typed-worker")
+check "/ah-name registers an unregistered session under that name" '[ "$(jq -r .slug "$(state "$E")")" = typed-worker ] && printf "%s" "$OUT" | grep -q "session named typed-worker"'
+
 # /ah:off ends only the current session, not the newest one.
 : >"$WORK/requests.log"
 touch "$(state "$B")"

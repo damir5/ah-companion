@@ -37,6 +37,20 @@ case "$PROMPT" in
 		printf '{"decision":"block","reason":"[Agent Hub] disconnected; this project no longer registers at session start. Type /ah-on (codex: ah-on) to reconnect."}'
 		exit 0
 		;;
+	# naming an unregistered session registers it under that name
+	/ah-name\ *)
+		NEW=$(printf '%s' "$PROMPT" | awk '{print $2}')
+		if [ -n "$NEW" ] && [ "${AH_COMPANION_HARNESS:-claude}" = "claude" ]; then
+			[ -n "$CWD" ] && cd "$CWD" 2>/dev/null || true
+			RES=$("$AHC" rename "$SESSION_ID" "$NEW" 2>/dev/null || true)
+			if printf '%s' "$RES" | grep -q '"ok": *true'; then
+				jq -cn --arg name "$NEW" '{decision:"block",reason:("[Agent Hub] session named "+$name)}'
+			else
+				jq -cn --arg result "$(printf '%s' "$RES" | head -c 200)" '{decision:"block",reason:("[Agent Hub] naming failed: "+$result)}'
+			fi
+			exit 0
+		fi
+		;;
 esac
 
 # A project switched on after this session started, or a daemon that was down
@@ -51,24 +65,6 @@ TOKEN=$(jq -r '.token // empty' "$STATE" 2>/dev/null || true)
 [ -n "$TOKEN" ] || exit 0
 
 "$AHC" flush-children "$SESSION_ID" >/dev/null 2>&1 || true
-
-# claude magic words: deterministic, intercepted before the model sees them
-if [ "${AH_COMPANION_HARNESS:-claude}" = "claude" ]; then
-	case "$PROMPT" in
-		/ah-name\ *)
-			NEW=$(printf '%s' "$PROMPT" | awk '{print $2}')
-			if [ -n "$NEW" ]; then
-				RES=$("$AHC" rename "$SESSION_ID" "$NEW" 2>/dev/null || true)
-				if printf '%s' "$RES" | grep -q '"ok": *true'; then
-					jq -cn --arg name "$NEW" '{decision:"block",reason:("[Agent Hub] session renamed to "+$name)}'
-				else
-					jq -cn --arg result "$(printf '%s' "$RES" | head -c 200)" '{decision:"block",reason:("[Agent Hub] rename failed: "+$result)}'
-				fi
-				exit 0
-			fi
-			;;
-	esac
-fi
 
 # Pending mail that fits the delivery budget is rendered and acked; the rest
 # stays pending for the next delivery point.
