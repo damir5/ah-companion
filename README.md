@@ -8,7 +8,7 @@ injection, no screen scraping.
 
 | Event | Behavior |
 |---|---|
-| `SessionStart` | if the project is switched on (see below), registers the session with the local ah daemon (`claude-<project>` / `codex-<project>` slug) and (claude) arms a background waiter |
+| `SessionStart` | only with `AH_COMPANION_AUTOREGISTER=1` (see below), registers the session with the local ah daemon (`claude-<project>` / `codex-<project>` slug) and (claude) arms a background waiter |
 | **idle + claude** | `asyncRewake` waiter long-polls the daemon and re-arms the wait while the session lives (one waiter per session); an arriving message wakes Claude with the message as a system reminder — a real triggered turn |
 | turn boundary | `Stop` hook blocks the stop with the first pending message and acks only that one — the harness processes it as turn continuation (claude + codex) |
 | your next prompt | `UserPromptSubmit` adds pending mail into the turn as context, whole messages up to 8000 bytes, and acks only those; the rest wait for the next delivery point. On claude the `ah-wake` nudge word is swallowed and replaced by the mail |
@@ -25,24 +25,18 @@ new Hub identities or credentials.
 
 ## Opt-in registration
 
-Sessions do not register by default, so the hub is not flooded with a
-`<harness>-<folder>` identity for every session. A session registers at start
-only when one of these holds:
+Sessions you open do not connect by default, so the hub is not flooded with a
+`<harness>-<folder>` identity for every session. Connect one session with
+`/ah:on` (Codex: type `ah-on`); `/ah:on <name>` (Codex: `ah-on <name>`) also
+names it, or renames it when it is already connected. Only that session
+connects. `/ah:off` (Codex: `ah-off`) disconnects it.
 
-- the project was switched on with `/ah:on` (Codex: the word `ah-on`), which
-  also registers the current session immediately. The switch is a marker file
-  in `~/.local/state/ah-companion/`, keyed by a hash of the project's Git root
-  (markers from 0.6.0 are not read; switch the project on again).
-- `AH_COMPANION_AUTOREGISTER=1` is set in the harness environment.
+Agents launched with `ah run` register through `ah run` itself; the plugin skips
+them. Setting `AH_COMPANION_AUTOREGISTER=1` in the harness environment makes
+every session register at start.
 
-A session that is not registered yet registers on its next prompt when its
-project has a marker, for example after the daemon was down at session start.
-
-`/ah:name <slug>` also registers a session that is not
-registered yet, under that name, without switching the project on.
-
-`/ah:off` (Codex: `ah-off`) disconnects the current session and removes the
-project's marker; it works even when the session never registered.
+Version 0.10.0 removed the per-project switch: the `project-*.on` marker files
+that older versions wrote in `~/.local/state/ah-companion/` are no longer read.
 
 ## Install
 
@@ -86,14 +80,13 @@ commands are for the human. Agents launch separate harness runs through `ah run`
 
 | What | Claude | Codex |
 |---|---|---|
-| Name this session (registers it if needed) | `/ah:name <slug>` | — |
+| Connect this session, optionally naming or renaming it | `/ah:on [name]` | type `ah-on [name]` |
 | Show identity + fleet roster | `/ah:status` | `ah status` |
-| Disconnect and switch the project off | `/ah:off` | type `ah-off` |
-| Register every new session in this project | `/ah:on` | type `ah-on` |
+| Disconnect this session | `/ah:off` | type `ah-off` |
 | DM another agent | `/ah:send <slug> <msg>` | `ah send --dm <slug> <msg>` |
 
 Codex has no plugin slash commands and its TUI rejects unknown `/...` input, so
-the words `ah-on` and `ah-off` are its only way to switch on or off. Claude also
+the words `ah-on` and `ah-off` are its only way to connect or disconnect. Claude also
 accepts them. `ah-wake` is not a user command: the daemon types it to wake an
 idle Claude session and deliver pending messages.
 

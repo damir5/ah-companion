@@ -14,37 +14,35 @@ AHC="$CLAUDE_PLUGIN_ROOT/hooks/ahc.py"
 STATE=$("$AHC" state-path "$SESSION_ID" 2>/dev/null || true)
 CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty')
 
-# ah-on and ah-off must work whether or not this session is registered: a
-# marker created while the daemon was down still has to be removable.
-# Both harnesses: codex has no plugin slash commands, so these words are its
-# only way to switch a session on or off from inside. The codex TUI rejects
-# unknown "/..." input before hooks run, so the words have no "/".
+# ah-on [name] and ah-off connect or disconnect only this session. Both
+# harnesses: codex has no plugin slash commands, so these words are its only
+# way to do this from inside. The codex TUI rejects unknown "/..." input before
+# hooks run, so the words have no "/".
 case "$PROMPT" in
-	ah-on)
-		touch "$("$AHC" project-marker "${CWD:-$PWD}")"
-		printf '%s' "$INPUT" | "$CLAUDE_PLUGIN_ROOT/hooks/session-start.sh"
+	ah-on|"ah-on "*)
+		NAME=$(printf '%s' "${PROMPT#ah-on}" | tr -d " \"'")
+		if [ -n "$NAME" ]; then
+			"$AHC" rename "$SESSION_ID" "$NAME" >/dev/null 2>&1 || true
+		elif [ ! -f "$STATE" ]; then
+			printf '%s' "$INPUT" | AH_COMPANION_AUTOREGISTER=1 "$CLAUDE_PLUGIN_ROOT/hooks/session-start.sh"
+		fi
 		SLUG=$(jq -r '.slug // empty' "$STATE" 2>/dev/null || true)
-		if [ -n "$SLUG" ]; then
-			jq -cn --arg slug "$SLUG" '{decision:"block",reason:("[Agent Hub] connected as "+$slug+"; new sessions in this project register automatically.")}'
+		if [ -n "$SLUG" ] && { [ -z "$NAME" ] || [ "$SLUG" = "$NAME" ]; }; then
+			jq -cn --arg slug "$SLUG" '{decision:"block",reason:("[Agent Hub] connected as "+$slug+".")}'
+		elif [ -n "$NAME" ] && [ -n "$SLUG" ]; then
+			jq -cn --arg slug "$SLUG" --arg name "$NAME" '{decision:"block",reason:("[Agent Hub] could not use the name "+$name+" (another live session may hold it); still connected as "+$slug+".")}'
 		else
-			printf '{"decision":"block","reason":"[Agent Hub] registration failed; check that the ah daemon is running (ah status)."}'
+			printf '{"decision":"block","reason":"[Agent Hub] connection failed; check that the ah daemon is running (ah status), then try again."}'
 		fi
 		exit 0
 		;;
 	ah-off)
 		"$AHC" end "$SESSION_ID" >/dev/null 2>&1 || true
-		rm -f "$STATE" "$("$AHC" project-marker "${CWD:-$PWD}")" 2>/dev/null || true
-		printf '{"decision":"block","reason":"[Agent Hub] disconnected; this project no longer registers at session start. Claude: /ah:on to reconnect; Codex: type ah-on."}'
+		rm -f "$STATE" 2>/dev/null || true
+		printf '{"decision":"block","reason":"[Agent Hub] disconnected. Claude: /ah:on to reconnect; Codex: type ah-on."}'
 		exit 0
 		;;
 esac
-
-# A project switched on after this session started, or a daemon that was down
-# at session start: register now. Only the marker counts here, so ah-off
-# holds for the session even when AH_COMPANION_AUTOREGISTER=1.
-if [ -n "$STATE" ] && [ ! -f "$STATE" ] && [ -f "$("$AHC" project-marker "${CWD:-$PWD}")" ]; then
-	printf '%s' "$INPUT" | "$CLAUDE_PLUGIN_ROOT/hooks/session-start.sh" || true
-fi
 
 [ -n "$STATE" ] && [ -f "$STATE" ] || exit 0
 TOKEN=$(jq -r '.token // empty' "$STATE" 2>/dev/null || true)

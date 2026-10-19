@@ -17,14 +17,12 @@ connection errors):
   end <native_session_id> [token]
   flush-children <native_session_id>               → bounded child evidence replay
   capture-status <native_session_id>               → sanitized capture readiness/backlog
-  project-marker <dir>                             → path of the auto-register marker
   send-current <slug> <body>                       → DM as the enclosing session
 
 Session state (token/slug) is kept by the caller; hooks store it in the
 state dir next to this script's data directory.
 """
 
-import hashlib
 import fcntl
 import glob
 import json
@@ -146,25 +144,6 @@ def state_dir() -> str:
 def state_file(session_id: str) -> str:
     safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in session_id)
     return os.path.join(state_dir(), f"session-{safe}.json")
-
-
-def project_marker(directory: str) -> str:
-    """Marker file whose presence opts a project (its Git root, else the
-    directory) into auto-registration at SessionStart. /ah:on creates it,
-    /ah:off removes it."""
-    try:
-        root = subprocess.run(
-            ["git", "-C", directory, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        root = directory
-    # Key by a hash of the canonical path: replacing separators alone made
-    # /tmp/a.b and /tmp/a/b share one marker.
-    root = os.path.realpath(root)
-    name = "".join(c if c.isalnum() or c in "-_" else "_" for c in os.path.basename(root))
-    digest = hashlib.sha256(root.encode("utf-8")).hexdigest()[:16]
-    return os.path.join(state_dir(), f"project-{name[:32]}-{digest}.on")
 
 
 def save_state(session_id: str, data: dict) -> None:
@@ -557,7 +536,7 @@ def main() -> int:
         print(__doc__, file=sys.stderr)
         return 2
     cmd, rest = args[0], args[1:]
-    if os.environ.get("AH_COMPANION_DISABLE") == "1" and cmd not in ("state-path", "project-marker", "socket"):
+    if os.environ.get("AH_COMPANION_DISABLE") == "1" and cmd not in ("state-path", "socket"):
         print(json.dumps({"ok": True, "skipped": "disabled"}))
         return 0
 
@@ -655,10 +634,6 @@ def main() -> int:
         print(socket_path())
         return 0
 
-    if cmd == "project-marker":
-        print(project_marker(rest[0]))
-        return 0
-
     if cmd == "state-path":
         print(state_file(rest[0]))
         return 0
@@ -684,7 +659,7 @@ def main() -> int:
         session = request({"type": "session.resolve"})
         if not session.get("token"):
             if session.get("error_code") == "sender_identity_missing":
-                session["error"] = "this session is not registered; run /ah:name <slug> in this session"
+                session["error"] = "this session is not connected; run /ah:on in this session"
             print(json.dumps(session))
             return 1
         resp = request({"type": "message.send", "token": session["token"], "agent_slug": session.get("agent_slug", ""), "dm": rest[0], "body": rest[1]})

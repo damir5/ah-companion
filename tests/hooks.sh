@@ -7,7 +7,7 @@ trap 'kill "$DAEMON" 2>/dev/null || true; rm -rf "$WORK"' EXIT
 export CLAUDE_PLUGIN_ROOT="$ROOT" XDG_STATE_HOME="$WORK/state" AGENT_HUB_CONFIG_DIR="$WORK/hub"
 export AH_COMPANION_HARNESS_PID=$$
 unset AH_COMPANION_AUTOREGISTER AH_COMPANION_HARNESS 2>/dev/null || true
-mkdir -p "$AGENT_HUB_CONFIG_DIR" "$WORK/projects/a.b" "$WORK/projects/a/b" "$WORK/projects/app"
+mkdir -p "$AGENT_HUB_CONFIG_DIR" "$WORK/projects/app"
 AHC="$ROOT/hooks/ahc.py"
 FAILED=0
 
@@ -54,62 +54,64 @@ command_md() {
 		sed -e "s|\${CLAUDE_PLUGIN_ROOT}|$ROOT|g" -e "s|\${CLAUDE_SESSION_ID}|$2|g" >"$WORK/cmd.sh"
 	(cd "$3" && sh "$WORK/cmd.sh")
 }
-marker() { python3 "$AHC" project-marker "$1"; }
 state() { python3 "$AHC" state-path "$1"; }
+# /ah:on with a name: the model puts the argument into NAME="".
+command_on_named() {
+	sed "s/^NAME=\"\"/NAME=\"$3\"/" "$ROOT/commands/on.md" >"$WORK/on-named.md"
+	sed -n '/^```bash$/,/^```$/p' "$WORK/on-named.md" | sed '1d;$d' |
+		sed -e "s|\${CLAUDE_PLUGIN_ROOT}|$ROOT|g" -e "s|\${CLAUDE_SESSION_ID}|$1|g" >"$WORK/cmd.sh"
+	(cd "$2" && sh "$WORK/cmd.sh")
+}
 
 A=11111111-1111-4111-8111-111111111111
 B=22222222-2222-4222-8222-222222222222
 APP="$WORK/projects/app"
 
-check "distinct directories get distinct markers" '[ "$(marker "$WORK/projects/a.b")" != "$(marker "$WORK/projects/a/b")" ]'
-ln -s "$APP" "$WORK/link"
-check "a symlinked path shares the canonical marker" '[ "$(marker "$WORK/link")" = "$(marker "$APP")" ]'
-
-# Daemon down: ah-on leaves a marker and no registration; ah-off still clears it.
+# Daemon down: ah-on reports failure; ah-off still answers.
 OUT=$(prompt "$A" "$APP" ah-on)
-check "ah-on with the daemon down reports failure" 'printf "%s" "$OUT" | grep -q "registration failed"'
-check "ah-on with the daemon down leaves the marker" '[ -f "$(marker "$APP")" ]'
+check "ah-on with the daemon down reports failure" 'printf "%s" "$OUT" | grep -q "connection failed"'
 OUT=$(prompt "$A" "$APP" ah-off)
 check "ah-off without a state file answers" 'printf "%s" "$OUT" | grep -q disconnected'
-check "ah-off without a state file removes the marker" '[ ! -f "$(marker "$APP")" ]'
 
 start_daemon
-# A marker set elsewhere: the next ordinary prompt registers the session.
-touch "$(marker "$APP")"
+# Sessions the user opens stay disconnected until they run /ah:on.
+printf '{"session_id":"%s","cwd":"%s"}' "$A" "$APP" | "$ROOT/hooks/session-start.sh"
 prompt "$A" "$APP" hello >/dev/null
-check "a prompt registers when the project is on" '[ -f "$(state "$A")" ]'
-rm -f "$(marker "$APP")"
-prompt "$B" "$APP" hello >/dev/null
-check "a prompt does not register when the project is off" '[ ! -f "$(state "$B")" ]'
+check "a new session does not connect by itself" '[ ! -f "$(state "$A")" ]'
+printf '{"session_id":"%s","cwd":"%s"}' "$A" "$APP" | AH_COMPANION_AUTOREGISTER=1 "$ROOT/hooks/session-start.sh"
+check "AH_COMPANION_AUTOREGISTER=1 connects at session start" '[ -f "$(state "$A")" ]'
 
-# /ah:on registers the current session immediately.
+# /ah:on connects only the current session.
 OUT=$(command_md on "$B" "$APP")
-check "/ah:on registers this session" 'printf "%s" "$OUT" | grep -q "registered as: claude-app"'
-
-# /ah:name names a session that was never registered: no /ah:on needed.
+check "/ah:on connects this session" 'printf "%s" "$OUT" | grep -q "connected as: claude-app"'
+OUT=$(command_md on "$B" "$APP")
+check "/ah:on on a connected session reports its name" 'printf "%s" "$OUT" | grep -q "already connected as: claude-app"'
 D=44444444-4444-4444-8444-444444444444
-sed 's/"SLUG"/"team-worker"/' "$ROOT/commands/name.md" >"$WORK/name.md"
-sed -n '/^```bash$/,/^```$/p' "$WORK/name.md" | sed '1d;$d' |
-	sed -e "s|\${CLAUDE_PLUGIN_ROOT}|$ROOT|g" -e "s|\${CLAUDE_SESSION_ID}|$D|g" >"$WORK/cmd.sh"
-OUT=$(cd "$APP" && sh "$WORK/cmd.sh")
-check "/ah:name registers an unregistered session under that name" '[ "$(jq -r .slug "$(state "$D")")" = team-worker ]'
+prompt "$D" "$APP" hello >/dev/null
+check "/ah:on in one session does not connect others" '[ ! -f "$(state "$D")" ]'
+
+# /ah:on <name> connects an unconnected session under that name, and renames a connected one.
+command_on_named "$D" "$APP" team-worker >/dev/null
+check "/ah:on <name> connects an unconnected session under that name" '[ "$(jq -r .slug "$(state "$D")")" = team-worker ]'
+command_on_named "$D" "$APP" lead >/dev/null
+check "/ah:on <name> renames a connected session" '[ "$(jq -r .slug "$(state "$D")")" = lead ]'
 
 # /ah:off ends only the current session, not the newest one.
 : >"$WORK/requests.log"
-touch "$(state "$B")"
 OUT=$(command_md off "$A" "$APP")
 check "/ah:off ends the current session" 'grep -q "^session.end" "$WORK/requests.log" && [ ! -f "$(state "$A")" ] && [ "$OUT" = disconnected ]'
-check "/ah:off leaves the other session registered" '[ -f "$(state "$B")" ]'
-check "/ah:off removes the marker" '[ ! -f "$(marker "$APP")" ]'
+check "/ah:off leaves the other session connected" '[ -f "$(state "$B")" ]'
 OUT=$(command_md off "" "$APP")
 check "/ah:off without a session id ends nothing" 'printf "%s" "$OUT" | grep -q "could not be identified" && [ -f "$(state "$B")" ]'
 
-# Codex has no plugin commands: the words are its only way to opt in or out.
+# Codex has no plugin commands: the words are its only way to connect or disconnect.
 C=thr_codex
 OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-on)
-check "codex ah-on registers the session as codex" 'printf "%s" "$OUT" | grep -q "connected as codex-app" && [ -f "$(state "$C")" ] && [ -f "$(marker "$APP")" ]'
+check "codex ah-on connects the session as codex" 'printf "%s" "$OUT" | grep -q "connected as codex-app" && [ -f "$(state "$C")" ]'
+OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" "ah-on reviewer")
+check "codex ah-on <name> renames the session" 'printf "%s" "$OUT" | grep -q "connected as reviewer" && [ "$(jq -r .slug "$(state "$C")")" = reviewer ]'
 OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-off)
-check "codex ah-off disconnects and switches the project off" 'printf "%s" "$OUT" | grep -q disconnected && [ ! -f "$(state "$C")" ] && [ ! -f "$(marker "$APP")" ]'
+check "codex ah-off disconnects" 'printf "%s" "$OUT" | grep -q disconnected && [ ! -f "$(state "$C")" ]'
 stop_daemon
 
 python3 "$ROOT/tests/messaging.py" || FAILED=1
