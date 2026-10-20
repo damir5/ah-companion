@@ -11,7 +11,8 @@ mkdir -p "$AGENT_HUB_CONFIG_DIR" "$WORK/projects/app"
 AHC="$ROOT/hooks/ahc.py"
 FAILED=0
 
-# Answers every request with ok and appends its type to requests.log.
+# Answers every request with ok and appends its type (and activity) to
+# requests.log. message.pending returns the messages in pending.json, if any.
 start_daemon() {
 	python3 - "$AGENT_HUB_CONFIG_DIR/daemon.sock" "$WORK/requests.log" <<'PY' &
 import json, os, socket, sys
@@ -29,8 +30,15 @@ while True:
         data += chunk
     request = json.loads(data)
     with open(log, "a") as f:
-        f.write(request["type"] + " " + request.get("session_id", "") + "\n")
-    conn.sendall((json.dumps({"ok": True, "messages": []}) + "\n").encode())
+        f.write(request["type"] + " " + request.get("session_id", "") + request.get("activity", "") + "\n")
+    messages = []
+    if request["type"] == "message.pending" and os.path.exists(log + ".pending.json"):
+        with open(log + ".pending.json") as f:
+            messages = json.load(f)
+    try:
+        conn.sendall((json.dumps({"ok": True, "messages": messages}) + "\n").encode())
+    except BrokenPipeError:
+        pass  # session.activity does not wait for the answer
     conn.close()
 PY
 	DAEMON=$!
@@ -112,6 +120,46 @@ OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" "ah-on reviewer")
 check "codex ah-on <name> renames the session" 'printf "%s" "$OUT" | grep -q "connected as reviewer" && [ "$(jq -r .slug "$(state "$C")")" = reviewer ]'
 OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-off)
 check "codex ah-off disconnects" 'printf "%s" "$OUT" | grep -q disconnected && [ ! -f "$(state "$C")" ]'
+
+# Activity: a prompt reports working; a stop that ends the turn reports idle;
+# a stop that delivers a message continues the turn and reports nothing.
+stop() { printf '{"session_id":"%s"}' "$1" | "$ROOT/hooks/stop.sh"; }
+: >"$WORK/requests.log"
+prompt "$B" "$APP" hello >/dev/null
+check "a prompt reports the session working" 'grep -qx "session.activity working" "$WORK/requests.log"'
+: >"$WORK/requests.log"
+stop "$B" >/dev/null
+check "a stop that ends the turn reports the session idle" 'grep -qx "session.activity idle" "$WORK/requests.log"'
+printf '[{"id":"m1","sender_id":"pi-app","body":"ping"}]' >"$WORK/requests.log.pending.json"
+: >"$WORK/requests.log"
+OUT=$(stop "$B")
+check "a stop that delivers a message blocks with it" 'printf "%s" "$OUT" | grep -q "\"decision\":\"block\".*ping"'
+check "a stop that delivers a message does not report idle" '! grep -q "session.activity" "$WORK/requests.log"'
+check "the stop that shows a message does not ack it" '! grep -q "^message.ack" "$WORK/requests.log"'
+rm "$WORK/requests.log.pending.json"
+: >"$WORK/requests.log"
+stop "$B" >/dev/null
+check "the next hook acks the shown message" 'grep -q "^message.ack" "$WORK/requests.log"'
+
+# /ah:on starts the waiter: the prompt's async waiter waits for the command's
+# bash to register, longer than the 10 s a plain prompt allows. A second
+# waiter for the same session exits at once.
+E=55555555-5555-4555-8555-555555555555
+waiter() { printf '{"session_id":"%s","prompt":"%s"}' "$1" "$2" | "$ROOT/hooks/wait-wake.sh"; }
+: >"$WORK/requests.log"
+waiter "$E" "/ah:on" >/dev/null 2>&1 &
+FIRST=$!
+sleep 11
+command_md on "$E" "$APP" >/dev/null
+for _ in 1 2 3 4 5 6 7 8 9 10; do grep -q "^wait" "$WORK/requests.log" && break; sleep 0.5; done
+check "/ah:on arms a waiter after connecting" 'grep -q "^wait" "$WORK/requests.log" && kill -0 "$FIRST" 2>/dev/null'
+waiter "$E" hello >/dev/null 2>&1 &
+SECOND=$!
+for _ in 1 2 3 4 5 6; do kill -0 "$SECOND" 2>/dev/null || break; sleep 0.5; done
+check "a second waiter for the session exits at once" '! kill -0 "$SECOND" 2>/dev/null && [ "$(grep -c "^wait" "$WORK/requests.log")" = 1 ]'
+pkill -f "wake-wait $E" 2>/dev/null || true
+wait "$FIRST" 2>/dev/null || true
+check "every prompt can arm the waiter" 'jq -e ".hooks.UserPromptSubmit[0].hooks[] | select(.asyncRewake and (.command | endswith(\"wait-wake.sh\")))" "$ROOT/hooks/hooks-claude.json" >/dev/null'
 stop_daemon
 
 python3 "$ROOT/tests/messaging.py" || FAILED=1

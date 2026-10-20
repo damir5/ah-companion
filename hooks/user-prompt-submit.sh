@@ -1,8 +1,7 @@
 #!/bin/sh
-# UserPromptSubmit hook (claude + codex): drain pending AH mail into the turn
-# as additional context; ack what was delivered. On claude, swallow the
-# "ah-wake" nudge prompt so the daemon can wake an idle session with one
-# tiny keystroke without polluting the conversation.
+# UserPromptSubmit hook (claude + codex): report the session working and
+# drain pending AH mail into the turn as additional context; the next hook
+# acks what was delivered (see ahc.py deliver).
 # stdin: hook JSON {session_id, prompt, cwd}
 set -eu
 [ "${AH_COMPANION_DISABLE:-}" = 1 ] && exit 0
@@ -48,23 +47,12 @@ esac
 TOKEN=$(jq -r '.token // empty' "$STATE" 2>/dev/null || true)
 [ -n "$TOKEN" ] || exit 0
 
+"$AHC" activity "$SESSION_ID" working >/dev/null 2>&1 || true
 "$AHC" flush-children "$SESSION_ID" >/dev/null 2>&1 || true
 
-# Pending mail that fits the delivery budget is rendered and acked; the rest
+# Pending mail that fits the delivery budget is attached as context; the rest
 # stays pending for the next delivery point.
-# claude wake-word: block the nudge prompt, deliver mail instead
-if [ "${AH_COMPANION_HARNESS:-claude}" = "claude" ] && [ "$PROMPT" = "ah-wake" ]; then
-	CONTEXT=$("$AHC" deliver "$TOKEN" 2>/dev/null || true)
-	if [ -n "$CONTEXT" ]; then
-		jq -cn --arg context "$CONTEXT" '{decision:"block",reason:("[Agent Hub mail]\n"+$context)}'
-		exit 0
-	fi
-	printf '{"decision":"block","reason":"[Agent Hub] no pending mail."}'
-	exit 0
-fi
-
-# Normal prompts: attach pending mail as context.
-CONTEXT=$("$AHC" deliver "$TOKEN" 2>/dev/null || true)
+CONTEXT=$("$AHC" deliver "$SESSION_ID" 2>/dev/null || true)
 if [ -n "$CONTEXT" ]; then
 	jq -cn --arg context "$CONTEXT" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit",additionalContext:("[Agent Hub mail]\n"+$context)}}'
 fi

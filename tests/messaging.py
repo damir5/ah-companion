@@ -44,9 +44,9 @@ class MessagingTest(unittest.TestCase):
 
 
 def fake_daemon(messages=(), waits=()):
-    """request() stand-in: message.pending returns messages, wait returns the
-    waits in order, ack answers ok. Every request is recorded."""
-    calls, waits = [], list(waits)
+    """request() stand-in: message.pending returns the messages not acked yet,
+    wait returns the waits in order, ack answers ok. Every request is recorded."""
+    calls, messages, waits = [], list(messages), list(waits)
 
     def request(payload, timeout=35.0):
         calls.append(payload)
@@ -54,6 +54,8 @@ def fake_daemon(messages=(), waits=()):
             return {"ok": True, "messages": list(messages)}
         if payload["type"] == "wait":
             return waits.pop(0)
+        if payload["type"] == "message.ack":
+            messages[:] = [m for m in messages if m["id"] != payload["message_id"]]
         return {"ok": True}
     return request, calls
 
@@ -62,7 +64,21 @@ def acked(calls):
     return [c["message_id"] for c in calls if c["type"] == "message.ack"]
 
 
-class DeliveryTest(unittest.TestCase):
+def handed_ids():
+    return ahc.handed("s", lambda ids: ids)
+
+
+class SessionStateTest(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        env = patch.dict(os.environ, {"XDG_STATE_HOME": directory.name})
+        env.start()
+        self.addCleanup(env.stop)
+        ahc.save_state("s", {"token": "t", "harness_pid": os.getpid()})
+
+
+class DeliveryTest(SessionStateTest):
     def test_header_names_sender_room_thread_id_and_reply_command(self):
         text = ahc.render_message({"id": "m2", "sender_id": "codex-api", "room": "team", "thread_root_id": "m1", "body": "hi"})
         self.assertEqual(text, '[From codex-api via Agent Hub; room team; thread m1; id m2; reply: ah reply --reply-to m2 "<text>"]\nhi')
@@ -77,8 +93,8 @@ class DeliveryTest(unittest.TestCase):
         big = "x" * ahc.DELIVERY_BUDGET
         request, calls = fake_daemon([{"id": "a", "body": "first"}, {"id": "b", "body": big}, {"id": "c", "body": "third"}])
         with patch.object(ahc, "request", request):
-            text = ahc.deliver("t")
-        self.assertEqual(acked(calls), ["a"])
+            text = ahc.deliver("s")
+        self.assertEqual(handed_ids(), ["a"])
         self.assertIn("first", text)
         self.assertNotIn("xxx", text)
         self.assertIn("2 more Agent Hub message(s) pending", text)
@@ -86,16 +102,16 @@ class DeliveryTest(unittest.TestCase):
     def test_a_first_message_larger_than_the_budget_is_cut_not_starved(self):
         request, calls = fake_daemon([{"id": "a", "body": "x" * (2 * ahc.DELIVERY_BUDGET)}])
         with patch.object(ahc, "request", request):
-            text = ahc.deliver("t")
-        self.assertEqual(acked(calls), ["a"])
+            text = ahc.deliver("s")
+        self.assertEqual(handed_ids(), ["a"])
         self.assertLessEqual(len(text.encode()), ahc.DELIVERY_BUDGET)
         self.assertIn("message cut at", text)
 
-    def test_stop_delivery_acks_only_the_message_it_shows(self):
+    def test_stop_delivery_hands_over_only_the_message_it_shows(self):
         request, calls = fake_daemon([{"id": "a", "body": "one"}, {"id": "b", "body": "two"}])
         with patch.object(ahc, "request", request):
-            text = ahc.deliver("t", 1)
-        self.assertEqual(acked(calls), ["a"])
+            text = ahc.deliver("s", 1)
+        self.assertEqual(handed_ids(), ["a"])
         self.assertNotIn("two", text)
 
     def test_a_later_message_is_never_delivered_cut(self):
@@ -104,38 +120,55 @@ class DeliveryTest(unittest.TestCase):
         # multibyte boundary the cut would land on.
         for pad in range(1, 9):
             request, calls = fake_daemon([{"id": "a", "body": "x" * pad}, {"id": "b", "body": "\U0001F600" * ahc.DELIVERY_BUDGET}])
+            ahc.handed("s", lambda ids: [])
             with patch.object(ahc, "request", request):
-                text = ahc.deliver("t")
-            self.assertEqual(acked(calls), ["a"], pad)
+                text = ahc.deliver("s")
+            self.assertEqual(handed_ids(), ["a"], pad)
             self.assertNotIn("message cut at", text, pad)
 
-    def test_a_failed_ack_keeps_the_message_out_of_the_delivery(self):
+    def test_a_message_is_acked_only_by_the_hook_after_the_one_that_showed_it(self):
+        # A crash between showing and the next hook must leave the message
+        # unacked (still pending on the hub), not acked and lost.
+        request, calls = fake_daemon([{"id": "a", "body": "one"}])
+        with patch.object(ahc, "request", request):
+            self.assertIn("one", ahc.deliver("s"))
+            self.assertEqual(acked(calls), [])
+            self.assertEqual(ahc.deliver("s"), "")
+        self.assertEqual(acked(calls), ["a"])
+        self.assertEqual(handed_ids(), [])
+
+    def test_a_handed_message_whose_ack_fails_is_retried_and_never_shown_again(self):
         def request(payload, timeout=35.0):
             if payload["type"] == "message.pending":
                 return {"ok": True, "messages": [{"id": "a", "body": "one"}]}
             return {"error": "hub is disconnected"}
         with patch.object(ahc, "request", request):
-            self.assertEqual(ahc.deliver("t"), "")
+            self.assertIn("one", ahc.deliver("s"))
+            self.assertEqual(ahc.deliver("s"), "")
+            self.assertEqual(ahc.deliver("s"), "")
+        self.assertEqual(handed_ids(), ["a"])
+
+    def test_the_handed_list_stays_bounded(self):
+        for i in range(ahc.HANDED_LIMIT + 5):
+            ahc.hand_over("s", str(i))
+        self.assertEqual(len(handed_ids()), ahc.HANDED_LIMIT)
 
 
-class WakeWaitTest(unittest.TestCase):
-    def setUp(self):
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        env = patch.dict(os.environ, {"XDG_STATE_HOME": directory.name})
-        env.start()
-        self.addCleanup(env.stop)
-        ahc.save_state("s", {"token": "t", "harness_pid": os.getpid()})
+class WakeWaitTest(SessionStateTest):
 
     def test_idle_waiter_keeps_waiting_past_daemon_timeouts(self):
         # An idle session must stay reachable for longer than one daemon wait.
         message = {"id": "m", "sender_id": "codex-api", "room": "team", "body": "ping"}
         request, calls = fake_daemon(waits=[{"ok": False, "status": "timeout"}] * 3 + [{"ok": True, "status": "message", "message": message}])
         stderr = io.StringIO()
-        with patch.object(ahc, "request", request), contextlib.redirect_stderr(stderr):
+        with patch.object(ahc, "request", request), patch.object(ahc, "report_activity") as activity, contextlib.redirect_stderr(stderr):
             self.assertEqual(ahc.wake_wait("s"), 2)
         self.assertEqual([c["type"] for c in calls].count("wait"), 4)
-        self.assertEqual(acked(calls), ["m"])
+        # The wake is not proof Claude saw it; the next hook acks it.
+        self.assertEqual(acked(calls), [])
+        self.assertEqual(handed_ids(), ["m"])
+        # The wake starts a turn.
+        activity.assert_called_once_with("s", "working")
         self.assertIn("[From codex-api via Agent Hub; room team; id m;", stderr.getvalue())
 
     def test_waiter_survives_hub_disconnects_and_daemon_restarts(self):
@@ -146,8 +179,20 @@ class WakeWaitTest(unittest.TestCase):
             {"error": "hub request timed out", "error_code": "server_timeout"}, {"ok": True, "status": "message", "message": message}])
         with patch.object(ahc, "request", request), patch.object(ahc.time, "sleep") as sleep, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(ahc.wake_wait("s"), 2)
-        self.assertEqual(acked(calls), ["m"])
+        self.assertEqual(handed_ids(), ["m"])
         self.assertEqual(sleep.call_count, 3)
+
+    def test_waiter_never_wakes_twice_for_a_handed_message(self):
+        # A daemon reconnect pushes unacked mail again; the waiter must not
+        # show a message an earlier hook already handed over.
+        ahc.hand_over("s", "old")
+        old, new = {"id": "old", "body": "seen"}, {"id": "new", "body": "fresh"}
+        request, calls = fake_daemon(waits=[{"ok": True, "status": "message", "message": old}, {"ok": True, "status": "message", "message": new}])
+        stderr = io.StringIO()
+        with patch.object(ahc, "request", request), patch.object(ahc, "report_activity"), contextlib.redirect_stderr(stderr):
+            self.assertEqual(ahc.wake_wait("s"), 2)
+        self.assertNotIn("seen", stderr.getvalue())
+        self.assertIn("fresh", stderr.getvalue())
 
     def test_waiter_stops_when_the_harness_is_gone(self):
         ahc.save_state("s", {"token": "t", "harness_pid": 999999})

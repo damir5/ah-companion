@@ -12,8 +12,9 @@ connection errors):
   ack <token> <message_id>
   fail <token> <message_id> <reason>
   pending <token>                                  → queued messages
-  deliver <token> [max_messages]                   → render + ack pending messages that fit
+  deliver <native_session_id> [max_messages]       → ack what earlier hooks handed over; render the pending messages that fit
   wake-wait <native_session_id>                    → claude idle waiter; exit 2 + message on stderr
+  activity <native_session_id> <working|idle>      → report turn state; never waits for an answer
   end <native_session_id> [token]
   flush-children <native_session_id>               → bounded child evidence replay
   capture-status <native_session_id>               → sanitized capture readiness/backlog
@@ -397,31 +398,99 @@ def render_message(message: dict, limit: int = DELIVERY_BUDGET) -> str:
     return data[: limit - len(note.encode("utf-8"))].decode("utf-8", "ignore") + note
 
 
-def deliver(token: str, max_messages: int = 0) -> str:
-    """Render whole pending messages, oldest first, while they fit in the
-    budget; ack only those. The rest stay pending for the next delivery point.
-    Only a first message larger than the budget is delivered cut; later
-    ones are delivered whole or not at all."""
-    pending = request({"type": "message.pending", "token": token})
-    messages = [m for m in pending.get("messages") or [] if isinstance(m, dict) and m.get("id") and m.get("body") is not None]
-    shown, used = [], 0
-    for message in messages:
-        if max_messages and len(shown) >= max_messages:
-            break
-        text = render_message(message, DELIVERY_BUDGET if not shown else sys.maxsize)
-        size = len(text.encode("utf-8")) + 2
-        if shown and used + size > DELIVERY_BUDGET:
-            break
+def report_activity(session_id: str, activity: str) -> None:
+    """Send session.activity like pi's ah-session does. Hooks call this on
+    every turn, so it sends the request and closes without waiting for the
+    daemon's answer; any failure is ignored."""
+    token = load_state(session_id).get("token")
+    if not token:
+        return
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(0.5)
         try:
-            if not request({"type": "message.ack", "token": token, "message_id": message["id"]}).get("ok"):
-                break
+            sock.connect(socket_path())
+            sock.sendall((json.dumps({"type": "session.activity", "token": token, "activity": activity}) + "\n").encode("utf-8"))
+        finally:
+            sock.close()
+    except OSError:
+        pass
+
+
+# Ids of messages handed to the agent and not yet acked. Bounded so a
+# message whose ack keeps failing cannot grow the file forever.
+HANDED_LIMIT = 100
+
+
+def handed(session_id: str, change) -> list:
+    """Run change(ids) -> new ids under the session's handed-file lock."""
+    with open(state_file(session_id) + ".handed", "a+", encoding="utf-8") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        try:
+            ids = json.loads(f.read() or "[]")
+        except ValueError:
+            ids = []
+        ids = change(ids)[-HANDED_LIMIT:]
+        f.seek(0)
+        f.truncate()
+        json.dump(ids, f)
+        return ids
+
+
+def hand_over(session_id: str, message_id: str) -> bool:
+    """Record message_id as handed to the agent; False when it already was."""
+    before = []
+
+    def add(ids):
+        before.extend(ids)
+        return ids if message_id in ids else ids + [message_id]
+    handed(session_id, add)
+    return message_id not in before
+
+
+def deliver(session_id: str, max_messages: int = 0) -> str:
+    """Ack the messages earlier hooks handed to the agent: this hook runs, so
+    the harness took that output. Then render whole pending messages, oldest
+    first, while they fit in the budget, and record them as handed; the next
+    hook acks them. A crash before that leaves them unacked, never acked and
+    lost. Messages already handed are never shown again. The rest stay
+    pending for the next delivery point. Only a first message larger than
+    the budget is delivered cut; later ones are delivered whole or not at all."""
+    token = load_state(session_id).get("token", "")
+    shown = []
+
+    def run(ids):
+        unacked = []
+        for mid in ids:
+            try:
+                ok = request({"type": "message.ack", "token": token, "message_id": mid}, timeout=5).get("ok")
+            except SystemExit:
+                ok = False
+            if not ok:
+                unacked.append(mid)
+        try:
+            pending = request({"type": "message.pending", "token": token})
         except SystemExit:
-            break
-        shown.append(text)
-        used += size
-    left = len(messages) - len(shown)
-    if shown and left:
-        shown.append(f"[{left} more Agent Hub message(s) pending; they arrive at the next turn boundary]")
+            return unacked
+        messages = [m for m in pending.get("messages") or [] if isinstance(m, dict) and m.get("id") and m.get("body") is not None and m["id"] not in ids]
+        new, used = [], 0
+        for message in messages:
+            if max_messages and len(shown) >= max_messages:
+                break
+            text = render_message(message, DELIVERY_BUDGET if not shown else sys.maxsize)
+            size = len(text.encode("utf-8")) + 2
+            if shown and used + size > DELIVERY_BUDGET:
+                break
+            shown.append(text)
+            new.append(message["id"])
+            used += size
+        left = len(messages) - len(shown)
+        if shown and left:
+            shown.append(f"[{left} more Agent Hub message(s) pending; they arrive at the next turn boundary]")
+        return unacked + new
+
+    handed(session_id, run)
     return "\n\n".join(shown)
 
 
@@ -467,10 +536,11 @@ def _wake_wait_locked(session_id: str) -> int:
         if resp.get("status") == "message" and isinstance(resp.get("message"), dict):
             message = resp["message"]
             if message.get("id"):
-                try:
-                    request({"type": "message.ack", "token": token, "message_id": message["id"]})
-                except SystemExit:
-                    pass
+                # Acked by the next hook (see deliver); one already handed
+                # over (a daemon reconnect pushes unacked mail again) is skipped.
+                if not hand_over(session_id, message["id"]):
+                    continue
+            report_activity(session_id, "working")
             print(render_message(message), file=sys.stderr)
             return 2
         if resp.get("status") == "timeout":
@@ -571,6 +641,10 @@ def main() -> int:
 
     if cmd == "deliver":
         print(deliver(rest[0], int(rest[1]) if len(rest) > 1 else 0))
+        return 0
+
+    if cmd == "activity":
+        report_activity(rest[0], rest[1])
         return 0
 
     if cmd == "wake-wait":

@@ -224,12 +224,17 @@ class CaptureTest(unittest.TestCase):
                         chunks += part
                     request = json.loads(chunks)
                     response = {"ok": True, "messages": [message]} if request["type"] == "message.pending" else {"ok": True}
-                    conn.sendall((json.dumps(response) + "\n").encode())
+                    try:
+                        conn.sendall((json.dumps(response) + "\n").encode())
+                    except BrokenPipeError:
+                        pass  # session.activity does not wait for the answer
         worker = threading.Thread(target=serve)
         worker.start()
         try:
             with patch.dict(os.environ, {"AGENT_HUB_CONFIG_DIR": str(config)}):
                 for hook in ("stop.sh", "user-prompt-submit.sh"):
+                    # Each hook would show the message once; forget the earlier hand-over.
+                    ahc.handed(self.native, lambda ids: [])
                     result = subprocess.run([str(ROOT / "hooks" / hook)], input=json.dumps({"session_id": self.native, "prompt": "hello"}), text=True, capture_output=True, check=True)
                     decoded = json.loads(result.stdout)
                     text = decoded.get("reason") or decoded["hookSpecificOutput"]["additionalContext"]

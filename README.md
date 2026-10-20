@@ -9,15 +9,16 @@ injection, no screen scraping.
 | Event | Behavior |
 |---|---|
 | `SessionStart` | only with `AH_COMPANION_AUTOREGISTER=1` (see below), registers the session with the local ah daemon (`claude-<project>` / `codex-<project>` slug) and (claude) arms a background waiter |
-| **idle + claude** | `asyncRewake` waiter long-polls the daemon and re-arms the wait while the session lives (one waiter per session); an arriving message wakes Claude with the message as a system reminder — a real triggered turn |
-| turn boundary | `Stop` hook blocks the stop with the first pending message and acks only that one — the harness processes it as turn continuation (claude + codex) |
-| your next prompt | `UserPromptSubmit` adds pending mail into the turn as context, whole messages up to 8000 bytes, and acks only those; the rest wait for the next delivery point. On claude the `ah-wake` nudge word is swallowed and replaced by the mail |
+| **idle + claude** | `asyncRewake` waiter long-polls the daemon and re-arms the wait while the session lives (one waiter per session); an arriving message wakes Claude with the message as a system reminder — a real triggered turn. `SessionStart`, every `UserPromptSubmit` (so `/ah:on` and `ah-on` too) and every `Stop` start the waiter when none runs |
+| turn boundary | `Stop` hook blocks the stop with the first pending message — the harness processes it as turn continuation (claude + codex). A stop that ends the turn reports the session `idle` |
+| your next prompt | `UserPromptSubmit` reports the session `working` and adds pending mail into the turn as context, whole messages up to 8000 bytes; the rest wait for the next delivery point |
+| acknowledgement | a message is acked only by the next hook after the one that handed it to the harness (prompt, stop or wake), so a crash before that leaves it unacked instead of lost. A handed message is never shown again |
 | `SessionEnd` | ends the daemon registration |
 | Claude `SubagentStart` / `SubagentStop` | records the native child ID under the enclosing parent and sends bounded durable observations to Agent Hub |
 | idle + codex | senders use the native `codex queue --thread <id> --message` (no asyncRewake in codex) |
 
 All daemon traffic speaks the same unix-socket protocol as the ah CLI
-(`session.register` / `wait` / `message.ack` / `message.fail` / `session.end` / `session.child`).
+(`session.register` / `wait` / `message.ack` / `message.fail` / `session.activity` / `session.end` / `session.child`).
 
 Child completion means the native response or turn ended. The parent still reviews
 checks and results before reporting completed work. Child observations create no
@@ -87,8 +88,7 @@ commands are for the human. Agents launch separate harness runs through `ah run`
 
 Codex has no plugin slash commands and its TUI rejects unknown `/...` input, so
 the words `ah-on` and `ah-off` are its only way to connect or disconnect. Claude also
-accepts them. `ah-wake` is not a user command: the daemon types it to wake an
-idle Claude session and deliver pending messages.
+accepts them.
 
 ## Limits / notes
 

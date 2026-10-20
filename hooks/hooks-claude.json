@@ -48,6 +48,13 @@
 						"type": "command",
 						"command": "$CLAUDE_PLUGIN_ROOT/hooks/user-prompt-submit.sh",
 						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "$CLAUDE_PLUGIN_ROOT/hooks/wait-wake.sh",
+						"async": true,
+						"asyncRewake": true,
+						"timeout": 604800
 					}
 				]
 			}

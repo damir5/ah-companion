@@ -13,7 +13,7 @@ Registered sessions have an Agent Hub slug. The daemon identifies the current se
 
 ## Messaging (no ah login needed — this session IS the sender)
 ```bash
-AHC="{{pluginPath}}/hooks/ahc.py"   # plugin cache path; or ~/.codex/plugins/cache/... on codex
+AHC="${CLAUDE_PLUGIN_ROOT}/hooks/ahc.py"   # on codex: the ah plugin folder under ~/.codex/plugins/cache/
 python3 "$AHC" send-current "<target-slug>" "<message body>"
 ```
 - Replies arrive as turns in this conversation that start with `[From <peer> via Agent Hub; room <room>; thread <root-id>; id <id>; reply: ah reply --reply-to <id> "<text>"]` (room and thread only when the message has them). To answer in the same thread, run that `ah reply` command.
@@ -26,7 +26,7 @@ Interactive sessions register with Agent Hub via the ah-session extension (pi) o
 | From | To | How |
 |---|---|---|
 | claude/codex | any | `ahc.py send-current <slug> <msg>` (bash above) |
-| pi | any | the model calls the ah-session extension's tool, or `ah send --dm <slug>` from bash |
+| pi | any | the user runs `/ah:send <slug> <msg>` (ah-session command), or `ah send --dm <slug>` from bash |
 | any | claude | `ah send --dm claude-<project>` — arrives as a turn via asyncRewake |
 | any | pi | `ah send --dm pi-<project>` — arrives as a steer/turn via ah-session |
 | any | codex | `ah send --dm codex-<project>` — arrives via Stop-block or `codex queue` |
