@@ -77,6 +77,12 @@ with hooks support. Changing hook code requires renewed human trust; installing
 the package alone is not proof that capture works. These installation and trust
 commands are for the human. Agents launch separate harness runs through `ah run`.
 
+Codex 0.163 and later run the TUI against a shared `codex app-server` daemon by
+default. Hooks then run under that daemon, so Agent Hub registers the daemon,
+not the pane: Drover cannot match the session to its pane, and the session ends
+only when the daemon does. Start Codex with `codex --no-daemon`; `ah-on` warns
+when it detects the daemon.
+
 ## Commands
 
 | What | Claude | Codex |

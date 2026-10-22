@@ -26,8 +26,12 @@ case "$PROMPT" in
 			printf '%s' "$INPUT" | AH_COMPANION_AUTOREGISTER=1 "$CLAUDE_PLUGIN_ROOT/hooks/session-start.sh"
 		fi
 		SLUG=$(jq -r '.slug // empty' "$STATE" 2>/dev/null || true)
+		NOTE=""
+		if [ "$(jq -r '.shared_daemon // false' "$STATE" 2>/dev/null)" = true ]; then
+			NOTE=" Warning: this Codex runs under the shared codex app-server daemon, so Agent Hub sees the daemon, not this pane (Drover cannot find the pane; the session ends only with the daemon). Start codex with --no-daemon to fix this."
+		fi
 		if [ -n "$SLUG" ] && { [ -z "$NAME" ] || [ "$SLUG" = "$NAME" ]; }; then
-			jq -cn --arg slug "$SLUG" '{decision:"block",reason:("[Agent Hub] connected as "+$slug+".")}'
+			jq -cn --arg slug "$SLUG" --arg note "$NOTE" '{decision:"block",reason:("[Agent Hub] connected as "+$slug+"."+$note)}'
 		elif [ -n "$NAME" ] && [ -n "$SLUG" ]; then
 			jq -cn --arg slug "$SLUG" --arg name "$NAME" '{decision:"block",reason:("[Agent Hub] could not use the name "+$name+" (another live session may hold it); still connected as "+$slug+".")}'
 		else

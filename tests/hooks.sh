@@ -118,6 +118,12 @@ OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-on)
 check "codex ah-on connects the session as codex" 'printf "%s" "$OUT" | grep -q "connected as codex-app" && [ -f "$(state "$C")" ]'
 OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" "ah-on reviewer")
 check "codex ah-on <name> renames the session" 'printf "%s" "$OUT" | grep -q "connected as reviewer" && [ "$(jq -r .slug "$(state "$C")")" = reviewer ]'
+# A Codex TUI on the shared app-server daemon: hooks run under the daemon.
+python3 -c 'import time; time.sleep(30)' app-server &
+APPSERVER=$!
+OUT=$(AH_COMPANION_HARNESS=codex AH_COMPANION_HARNESS_PID=$APPSERVER prompt thr_codex_daemon "$APP" ah-on)
+kill "$APPSERVER" 2>/dev/null || true
+check "codex ah-on under the app-server daemon warns and names --no-daemon" 'printf "%s" "$OUT" | grep -q "connected as .*--no-daemon"'
 OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-off)
 check "codex ah-off disconnects" 'printf "%s" "$OUT" | grep -q disconnected && [ ! -f "$(state "$C")" ]'
 

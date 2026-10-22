@@ -591,8 +591,13 @@ def register(harness: str, slug: str, session_id: str, model: str = "", auto_nam
         resp = request({**registration, "auto_name": True}, timeout=2)
     if resp.get("ok"):
         slug = resp.get("agent_slug") or slug
+        # Codex 0.163+ runs TUIs against a shared `codex app-server` daemon by
+        # default; hooks then run under it, so this registration follows the
+        # daemon, not the pane. ah-on warns; `codex --no-daemon` avoids it.
+        shared_daemon = harness == "codex" and "app-server" in _ps_command(harness_pid)
         save_state(native_id, {"token": token, "slug": slug, "session_id": session_id,
-            "native_session_id": native_id, "harness": harness, "harness_pid": harness_pid})
+            "native_session_id": native_id, "harness": harness, "harness_pid": harness_pid,
+            **({"shared_daemon": True} if shared_daemon else {})})
         deadline = time.monotonic() + 1
         flush_children(native_id, deadline=deadline)
         flush_retained_children(deadline)
