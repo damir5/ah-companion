@@ -3,10 +3,10 @@
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d)
-trap 'kill "$DAEMON" 2>/dev/null || true; rm -rf "$WORK"' EXIT
+trap 'kill "$DAEMON" ${HERDR:-} 2>/dev/null || true; rm -rf "$WORK"' EXIT
 export CLAUDE_PLUGIN_ROOT="$ROOT" XDG_STATE_HOME="$WORK/state" AGENT_HUB_CONFIG_DIR="$WORK/hub"
 export AH_COMPANION_HARNESS_PID=$$
-unset AH_COMPANION_AUTOREGISTER AH_COMPANION_HARNESS 2>/dev/null || true
+unset AH_COMPANION_AUTOREGISTER AH_COMPANION_HARNESS HERDR_DROVER_ENV HERDR_SOCKET_PATH HERDR_PANE_ID 2>/dev/null || true
 mkdir -p "$AGENT_HUB_CONFIG_DIR" "$WORK/projects/app"
 AHC="$ROOT/hooks/ahc.py"
 FAILED=0
@@ -124,8 +124,39 @@ APPSERVER=$!
 OUT=$(AH_COMPANION_HARNESS=codex AH_COMPANION_HARNESS_PID=$APPSERVER prompt thr_codex_daemon "$APP" ah-on)
 kill "$APPSERVER" 2>/dev/null || true
 check "codex ah-on under the app-server daemon warns and names --no-daemon" 'printf "%s" "$OUT" | grep -q "connected as .*--no-daemon"'
-OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-off)
+# herdr learns Codex turn state from Codex hooks. A blocked ah-on/ah-off runs no
+# turn and Codex sends no Stop, so the companion reports the pane idle itself.
+python3 - "$WORK/herdr.sock" "$WORK/herdr.log" <<'PY2' &
+import json, socket, sys
+path, log = sys.argv[1], sys.argv[2]
+server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+server.bind(path)
+server.listen()
+while True:
+    conn, _ = server.accept()
+    request = json.loads(conn.makefile().readline())
+    if request["method"] == "pane.report_agent":
+        with open(log, "a") as f:
+            f.write(json.dumps(request["params"]) + "\n")
+    conn.sendall((json.dumps({"id": request["id"], "result": {"pane": {"agent_status": "working"}}}) + "\n").encode())
+    conn.close()
+PY2
+HERDR=$!
+while [ ! -S "$WORK/herdr.sock" ]; do sleep 0.05; done
+export HERDR_SOCKET_PATH="$WORK/herdr.sock" HERDR_PANE_ID=w1:p1
+reported_idle() { jq -e --arg s "$1" 'select(.pane_id == "w1:p1" and .source == "herdr:codex" and .state == "idle" and .agent_session_id == $s)' "$WORK/herdr.log" >/dev/null 2>&1; }
+: >"$WORK/herdr.log"
+HERDR_DROVER_ENV=1 AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-on >/dev/null
+check "codex ah-on in a herdr pane reports the pane idle" 'reported_idle "$C"'
+: >"$WORK/herdr.log"
+HERDR_DROVER_ENV=1 AH_COMPANION_HARNESS=claude prompt "$B" "$APP" ah-on >/dev/null
+check "claude ah-on reports nothing to herdr" '[ ! -s "$WORK/herdr.log" ]'
+OUT=$(HERDR_DROVER_ENV=1 AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-off)
 check "codex ah-off disconnects" 'printf "%s" "$OUT" | grep -q disconnected && [ ! -f "$(state "$C")" ]'
+check "codex ah-off in a herdr pane reports the pane idle" 'reported_idle "$C"'
+kill "$HERDR" 2>/dev/null || true
+wait "$HERDR" 2>/dev/null || true
+unset HERDR_DROVER_ENV HERDR_SOCKET_PATH HERDR_PANE_ID AH_COMPANION_HARNESS
 
 # Activity: a prompt reports working; a stop that ends the turn reports idle;
 # a stop that delivers a message continues the turn and reports nothing.

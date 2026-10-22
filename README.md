@@ -122,6 +122,9 @@ accepts them.
   does not mark children stopped. Sessions launched by `ah run` are captured by the
   supervisor/daemon and are never registered again through companion hooks.
 
+- In a herdr pane, a Codex `ah-on` or `ah-off` runs no turn, so Codex sends no
+  Stop hook; the companion then reports the pane idle to herdr itself, so herdr
+  does not show it working.
 - codex background hooks don't wake idle sessions — idle codex delivery is
   sender-side via `codex queue`; the plugin covers active sessions.
 - Hook processes see the session cwd; registration slug derives from it

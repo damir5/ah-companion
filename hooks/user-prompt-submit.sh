@@ -17,6 +17,12 @@ CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty')
 # harnesses: codex has no plugin slash commands, so these words are its only
 # way to do this from inside. The codex TUI rejects unknown "/..." input before
 # hooks run, so the words have no "/".
+# A blocked Codex prompt runs no turn, so Codex sends no Stop and herdr would
+# show the pane working until the next turn ends; herdr-idle resets it.
+consumed() {
+	[ "${AH_COMPANION_HARNESS:-}" = codex ] && "$AHC" herdr-idle "$SESSION_ID" >/dev/null 2>&1 || true
+	exit 0
+}
 case "$PROMPT" in
 	ah-on|"ah-on "*)
 		NAME=$(printf '%s' "${PROMPT#ah-on}" | tr -d " \"'")
@@ -37,13 +43,13 @@ case "$PROMPT" in
 		else
 			printf '{"decision":"block","reason":"[Agent Hub] connection failed; check that the ah daemon is running (ah status), then try again."}'
 		fi
-		exit 0
+		consumed
 		;;
 	ah-off)
 		"$AHC" end "$SESSION_ID" >/dev/null 2>&1 || true
 		rm -f "$STATE" 2>/dev/null || true
 		printf '{"decision":"block","reason":"[Agent Hub] disconnected. Claude: /ah:on to reconnect; Codex: type ah-on."}'
-		exit 0
+		consumed
 		;;
 esac
 

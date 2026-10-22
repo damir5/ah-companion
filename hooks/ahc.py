@@ -19,6 +19,7 @@ connection errors):
   flush-children <native_session_id>               → bounded child evidence replay
   capture-status <native_session_id>               → sanitized capture readiness/backlog
   send-current <slug> <body>                       → DM as the enclosing session
+  herdr-idle <native_session_id>                   → codex: tell herdr the pane is idle after a consumed prompt
 
 Session state (token/slug) is kept by the caller; hooks store it in the
 state dir next to this script's data directory.
@@ -417,6 +418,46 @@ def report_activity(session_id: str, activity: str) -> None:
         pass
 
 
+def herdr_call(sock_path: str, method: str, params: dict) -> dict:
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(0.5)
+    try:
+        sock.connect(sock_path)
+        sock.sendall((json.dumps({"id": f"ah-companion:{uuid.uuid4()}", "method": method, "params": params}) + "\n").encode("utf-8"))
+        data = b""
+        while not data.endswith(b"\n"):
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+    finally:
+        sock.close()
+    return json.loads(data or b"{}")
+
+
+def herdr_idle(session_id: str) -> None:
+    """A Codex prompt the hook blocks (ah-on, ah-off) runs no turn, so Codex
+    sends no Stop hook. herdr's own Codex hook saw the prompt and set the pane
+    working; nothing would set it idle again. Wait until that working report
+    has landed (the hooks run at the same time), then report idle the way
+    herdr's Stop hook does: same source, a newer sequence number. Does nothing
+    outside a herdr pane; any failure is ignored."""
+    sock_path, pane_id = os.environ.get("HERDR_SOCKET_PATH"), os.environ.get("HERDR_PANE_ID")
+    if os.environ.get("HERDR_DROVER_ENV") != "1" or not sock_path or not pane_id:
+        return
+    try:
+        deadline = time.monotonic() + 3
+        while herdr_call(sock_path, "pane.get", {"pane_id": pane_id}).get("result", {}).get("pane", {}).get("agent_status") != "working":
+            if time.monotonic() > deadline:
+                return
+            time.sleep(0.05)
+        herdr_call(sock_path, "pane.report_agent", {
+            "pane_id": pane_id, "source": "herdr:codex", "agent": "codex", "seq": time.time_ns(),
+            "agent_session_id": session_id, "state": "idle"})
+    except (OSError, ValueError):
+        pass
+
+
 # Ids of messages handed to the agent and not yet acked. Bounded so a
 # message whose ack keeps failing cannot grow the file forever.
 HANDED_LIMIT = 100
@@ -650,6 +691,10 @@ def main() -> int:
 
     if cmd == "activity":
         report_activity(rest[0], rest[1])
+        return 0
+
+    if cmd == "herdr-idle":
+        herdr_idle(rest[0])
         return 0
 
     if cmd == "wake-wait":
