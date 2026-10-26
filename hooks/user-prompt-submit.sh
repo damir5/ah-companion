@@ -17,11 +17,18 @@ CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty')
 # harnesses: codex has no plugin slash commands, so these words are its only
 # way to do this from inside. The codex TUI rejects unknown "/..." input before
 # hooks run, so the words have no "/".
-# A blocked Codex prompt runs no turn, so Codex sends no Stop and herdr would
+# A consumed Codex prompt runs no turn, so Codex sends no Stop and herdr would
 # show the pane working until the next turn ends; herdr-idle resets it.
 consumed() {
 	[ "${AH_COMPANION_HARNESS:-}" = codex ] && "$AHC" herdr-idle "$SESSION_ID" >/dev/null 2>&1 || true
 	exit 0
+}
+success() {
+	if [ "${AH_COMPANION_HARNESS:-}" = codex ]; then
+		jq -cn --arg text "$1" '{continue:false,stopReason:("[Agent Hub] Success: "+$text)}'
+	else
+		jq -cn --arg text "$1" '{decision:"block",reason:("[Agent Hub] "+$text)}'
+	fi
 }
 case "$PROMPT" in
 	ah-on|"ah-on "*)
@@ -37,7 +44,7 @@ case "$PROMPT" in
 			NOTE=" Warning: this Codex runs under the shared codex app-server daemon, so Agent Hub sees the daemon, not this pane (Drover cannot find the pane; the session ends only with the daemon). Start codex with --no-daemon to fix this."
 		fi
 		if [ -n "$SLUG" ] && { [ -z "$NAME" ] || [ "$SLUG" = "$NAME" ]; }; then
-			jq -cn --arg slug "$SLUG" --arg note "$NOTE" '{decision:"block",reason:("[Agent Hub] connected as "+$slug+"."+$note)}'
+			success "connected as $SLUG.$NOTE"
 		elif [ -n "$NAME" ] && [ -n "$SLUG" ]; then
 			jq -cn --arg slug "$SLUG" --arg name "$NAME" '{decision:"block",reason:("[Agent Hub] could not use the name "+$name+" (another live session may hold it); still connected as "+$slug+".")}'
 		else
@@ -48,7 +55,11 @@ case "$PROMPT" in
 	ah-off)
 		"$AHC" end "$SESSION_ID" >/dev/null 2>&1 || true
 		rm -f "$STATE" 2>/dev/null || true
-		printf '{"decision":"block","reason":"[Agent Hub] disconnected. Claude: /ah:on to reconnect; Codex: type ah-on."}'
+		if [ "${AH_COMPANION_HARNESS:-}" = codex ]; then
+			success "disconnected."
+		else
+			success "disconnected. Claude: /ah:on to reconnect; Codex: type ah-on."
+		fi
 		consumed
 		;;
 esac

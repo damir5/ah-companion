@@ -78,6 +78,8 @@ APP="$WORK/projects/app"
 # Daemon down: ah-on reports failure; ah-off still answers.
 OUT=$(prompt "$A" "$APP" ah-on)
 check "ah-on with the daemon down reports failure" 'printf "%s" "$OUT" | grep -q "connection failed"'
+OUT=$(AH_COMPANION_HARNESS=codex prompt "$A" "$APP" ah-on)
+check "codex failed ah-on still blocks with the failure" 'printf "%s" "$OUT" | jq -e '\''.decision == "block" and (.reason | contains("connection failed")) and (has("stopReason") | not)'\'' >/dev/null'
 OUT=$(prompt "$A" "$APP" ah-off)
 check "ah-off without a state file answers" 'printf "%s" "$OUT" | grep -q disconnected'
 
@@ -116,6 +118,7 @@ check "/ah:off without a session id ends nothing" 'printf "%s" "$OUT" | grep -q 
 C=thr_codex
 OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-on)
 check "codex ah-on connects the session as codex" 'printf "%s" "$OUT" | grep -q "connected as codex-app" && [ -f "$(state "$C")" ]'
+check "codex successful ah-on stops with a success reason, not a block" 'printf "%s" "$OUT" | jq -e '\''.continue == false and (.stopReason | startswith("[Agent Hub] Success: connected as ")) and (has("decision") | not)'\'' >/dev/null'
 OUT=$(AH_COMPANION_HARNESS=codex prompt "$C" "$APP" "ah-on reviewer")
 check "codex ah-on <name> renames the session" 'printf "%s" "$OUT" | grep -q "connected as reviewer" && [ "$(jq -r .slug "$(state "$C")")" = reviewer ]'
 # A Codex TUI on the shared app-server daemon: hooks run under the daemon.
@@ -149,10 +152,12 @@ reported_idle() { jq -e --arg s "$1" 'select(.pane_id == "w1:p1" and .source == 
 HERDR_DROVER_ENV=1 AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-on >/dev/null
 check "codex ah-on in a herdr pane reports the pane idle" 'reported_idle "$C"'
 : >"$WORK/herdr.log"
-HERDR_DROVER_ENV=1 AH_COMPANION_HARNESS=claude prompt "$B" "$APP" ah-on >/dev/null
+OUT=$(HERDR_DROVER_ENV=1 AH_COMPANION_HARNESS=claude prompt "$B" "$APP" ah-on)
+check "claude successful ah-on keeps its block response" 'printf "%s" "$OUT" | jq -e '\''.decision == "block" and (.reason | startswith("[Agent Hub] connected as "))'\'' >/dev/null'
 check "claude ah-on reports nothing to herdr" '[ ! -s "$WORK/herdr.log" ]'
 OUT=$(HERDR_DROVER_ENV=1 AH_COMPANION_HARNESS=codex prompt "$C" "$APP" ah-off)
 check "codex ah-off disconnects" 'printf "%s" "$OUT" | grep -q disconnected && [ ! -f "$(state "$C")" ]'
+check "codex successful ah-off stops with a success reason, not a block" 'printf "%s" "$OUT" | jq -e '\''.continue == false and .stopReason == "[Agent Hub] Success: disconnected." and (has("decision") | not)'\'' >/dev/null'
 check "codex ah-off in a herdr pane reports the pane idle" 'reported_idle "$C"'
 kill "$HERDR" 2>/dev/null || true
 wait "$HERDR" 2>/dev/null || true
